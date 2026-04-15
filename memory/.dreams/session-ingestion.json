@@ -1,0 +1,35 @@
+{
+  "version": 3,
+  "files": {
+    "dalong:sessions/814e75fb-2c3c-4fee-84b8-f44c7490715c.jsonl": {
+      "mtimeMs": 1776265807043,
+      "size": 24882,
+      "contentHash": "a461dd0322bff66c298049b831c04169aeafb5cdd8b9db9b481133e8a5411d13",
+      "lineCount": 8,
+      "lastContentLine": 8
+    },
+    "dalong:sessions/cfc38bdb-875f-4043-9338-80eb0587bb1a.jsonl": {
+      "mtimeMs": 1776269142598,
+      "size": 245039,
+      "contentHash": "a908843144618a0c545149ec073c355d85ee2bec80ed136bb2f587634fc500c4",
+      "lineCount": 2,
+      "lastContentLine": 2
+    }
+  },
+  "seenMessages": {
+    "dalong:814e75fb-2c3c-4fee-84b8-f44c7490715c": [
+      "3172f7114546e8fbba7e40fc8df4200d73b7879f",
+      "1668f2f01156bb7f5afb636584d41d7f4eb719f9",
+      "313bed40e4f351095fe33c7563d26cb0f857bfb1",
+      "4a291897cff5452f869d7bae935c94a1a4d38cdf",
+      "326876a6802229d5bce73dc3ca261edbfaf4cda3",
+      "1ab555be0e08d3b9d3d4cbebdb5a064cf385fa7a",
+      "eb1d0bd0e88d55533010847b2da5672f4cf0eb05",
+      "9835f8d1eb63ace9ff2806742b5dbc0050211238"
+    ],
+    "dalong:cfc38bdb-875f-4043-9338-80eb0587bb1a": [
+      "14d6777714f9a661d86ab8ce64bdb815c3515d5a",
+      "751b97a03c6f1a5682692b0a16ac0972c5a79c11"
+    ]
+  }
+}
