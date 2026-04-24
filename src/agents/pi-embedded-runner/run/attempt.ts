@@ -73,7 +73,7 @@ import {
   resolveChannelReactionGuidance,
 } from "../../channel-tools.js";
 import { DEFAULT_CONTEXT_TOKENS } from "../../defaults.js";
-import { resolveOpenClawReferencePaths } from "../../docs-path.js";
+import { resolveOpenClawDocsPath } from "../../docs-path.js";
 import { isTimeoutError } from "../../failover-error.js";
 import { resolveHeartbeatPromptForSystemPrompt } from "../../heartbeat-system-prompt.js";
 import { resolveImageSanitizationLimits } from "../../image-sanitization.js";
@@ -84,7 +84,6 @@ import { supportsModelTools } from "../../model-tool-support.js";
 import { releaseWsSession } from "../../openai-ws-stream.js";
 import { resolveOwnerDisplaySetting } from "../../owner-display.js";
 import { createBundleLspToolRuntime } from "../../pi-bundle-lsp-runtime.js";
-import { TOOL_NAME_SEPARATOR } from "../../pi-bundle-mcp-names.js";
 import {
   getOrCreateSessionMcpRuntime,
   materializeBundleMcpToolsForRun,
@@ -121,7 +120,6 @@ import { registerProviderStreamForModel } from "../../provider-stream.js";
 import { resolveSandboxContext } from "../../sandbox.js";
 import { resolveSandboxRuntimeStatus } from "../../sandbox/runtime-status.js";
 import { repairSessionFileIfNeeded } from "../../session-file-repair.js";
-import { guardSessionManager } from "../../session-tool-result-guard-wrapper.js";
 import { sanitizeToolUseResultPairing } from "../../session-transcript-repair.js";
 import {
   acquireSessionWriteLock,
@@ -465,20 +463,6 @@ export function applyEmbeddedAttemptToolsAllow<T extends { name: string }>(
   }
   const allowSet = new Set(toolsAllow);
   return tools.filter((tool) => allowSet.has(tool.name));
-}
-
-export function shouldCreateBundleMcpRuntimeForAttempt(params: {
-  toolsEnabled: boolean;
-  disableTools?: boolean;
-  toolsAllow?: string[];
-}): boolean {
-  if (!params.toolsEnabled || params.disableTools === true) {
-    return false;
-  }
-  if (!params.toolsAllow || params.toolsAllow.length === 0) {
-    return true;
-  }
-  return params.toolsAllow.some((toolName) => toolName.includes(TOOL_NAME_SEPARATOR));
 }
 
 function collectAttemptExplicitToolAllowlistSources(params: {
@@ -851,12 +835,7 @@ export async function runEmbeddedAttempt(
         model: params.model,
       });
     const clientTools = toolsEnabled ? params.clientTools : undefined;
-    const bundleMcpEnabled = shouldCreateBundleMcpRuntimeForAttempt({
-      toolsEnabled,
-      disableTools: params.disableTools,
-      toolsAllow: params.toolsAllow,
-    });
-    const bundleMcpSessionRuntime = bundleMcpEnabled
+    const bundleMcpSessionRuntime = toolsEnabled
       ? await getOrCreateSessionMcpRuntime({
           sessionId: params.sessionId,
           sessionKey: params.sessionKey,
@@ -1054,7 +1033,7 @@ export async function runEmbeddedAttempt(
     // When toolsAllow is set, use minimal prompt and strip skills catalog
     const effectivePromptMode = params.toolsAllow?.length ? ("minimal" as const) : promptMode;
     const effectiveSkillsPrompt = params.toolsAllow?.length ? undefined : skillsPrompt;
-    const openClawReferences = await resolveOpenClawReferencePaths({
+    const docsPath = await resolveOpenClawDocsPath({
       workspaceDir: effectiveWorkspace,
       argv1: process.argv[1],
       cwd: effectiveWorkspace,
@@ -1111,8 +1090,7 @@ export async function runEmbeddedAttempt(
         reasoningTagHint,
         heartbeatPrompt,
         skillsPrompt: effectiveSkillsPrompt,
-        docsPath: openClawReferences.docsPath ?? undefined,
-        sourcePath: openClawReferences.sourcePath ?? undefined,
+        docsPath: docsPath ?? undefined,
         ttsHint,
         workspaceNotes: workspaceNotes?.length ? workspaceNotes : undefined,
         reactionGuidance,
@@ -1180,7 +1158,7 @@ export async function runEmbeddedAttempt(
     let systemPromptText = systemPromptOverride();
     const userPromptPrefixText = bootstrapRouting.userPromptPrefixText;
 
-    let sessionManager: ReturnType<typeof guardSessionManager> | undefined;
+    let sessionManager: ReturnType<typeof SessionManager.open> | undefined;
     let session: Awaited<ReturnType<typeof createAgentSession>>["session"] | undefined;
     let removeToolResultContextGuard: (() => void) | undefined;
     let trajectoryRecorder: ReturnType<typeof createTrajectoryRuntimeRecorder> | null = null;
@@ -1208,21 +1186,7 @@ export async function runEmbeddedAttempt(
         });
 
       await prewarmSessionFile(params.sessionFile);
-      sessionManager = guardSessionManager(SessionManager.open(params.sessionFile), {
-        agentId: sessionAgentId,
-        sessionKey: params.sessionKey,
-        config: params.config,
-        contextWindowTokens: params.contextTokenBudget,
-        inputProvenance: params.inputProvenance,
-        allowSyntheticToolResults: transcriptPolicy.allowSyntheticToolResults,
-        missingToolResultText:
-          params.model.api === "openai-responses" ||
-          params.model.api === "azure-openai-responses" ||
-          params.model.api === "openai-codex-responses"
-            ? "aborted"
-            : undefined,
-        allowedToolNames,
-      });
+      sessionManager = SessionManager.open(params.sessionFile);
       trackSessionManagerAccess(params.sessionFile);
 
       await runAttemptContextEngineBootstrap({
@@ -1868,7 +1832,6 @@ export async function runEmbeddedAttempt(
         const limited = transcriptPolicy.repairToolUseResultPairing
           ? sanitizeToolUseResultPairing(truncated, {
               erroredAssistantResultPolicy: "drop",
-              ...(isOpenAIResponsesApi ? { missingToolResultText: "aborted" } : {}),
             })
           : truncated;
         cacheTrace?.recordStage("session:limited", { messages: limited });
@@ -1915,7 +1878,9 @@ export async function runEmbeddedAttempt(
       } catch (err) {
         await flushPendingToolResultsAfterIdle({
           agent: activeSession?.agent,
-          sessionManager,
+          // SessionManager no longer wraps ToolResultFlushManager (guard
+          // wrapper removed); flush becomes a no-op.
+          sessionManager: null,
           clearPendingOnTimeout: true,
         });
         activeSession.dispose();
@@ -2013,21 +1978,6 @@ export async function runEmbeddedAttempt(
           }
         | undefined;
 
-      // Captures an `after_tool_call` block decision when it lands. Tools
-      // that already executed cannot be un-executed, but we mark the run
-      // as blocked so the post-prompt() flow surfaces the block message,
-      // emits a terminal lifecycle event, and skips the legacy hook-block
-      // orchestration.
-      let afterToolCallBlock:
-        | {
-            toolName: string;
-            toolCallId: string;
-            replacementMessage: string;
-            reason: string;
-            pluginId: string;
-          }
-        | undefined;
-
       const subscription = subscribeEmbeddedPiSession(
         buildEmbeddedSubscriptionParams({
           session: activeSession,
@@ -2036,7 +1986,7 @@ export async function runEmbeddedAttempt(
           hookRunner: getGlobalHookRunner() ?? undefined,
           inlineLlmOutputContext: {
             agentId: sessionAgentId,
-            sessionKey: params.sessionKey,
+            sessionKey: params.sessionKey ?? "",
             workspaceDir: params.workspaceDir,
             trigger: params.trigger,
             channelId: params.messageChannel ?? params.messageProvider ?? undefined,
@@ -2086,7 +2036,7 @@ export async function runEmbeddedAttempt(
                 await import("../../../config/sessions/transcript.js");
               await appendAssistantMessageToSessionTranscript({
                 agentId: sessionAgentId,
-                sessionKey: params.sessionKey,
+                sessionKey: params.sessionKey ?? "",
                 text: info.replacementMessage,
                 idempotencyKey: `hook-block:llm_output:inline:${params.runId}`,
                 updateMode: "inline",
@@ -2133,75 +2083,6 @@ export async function runEmbeddedAttempt(
             } catch (err) {
               log.warn(
                 `inline llm_output block: activeSession.abort() failed: ${
-                  (err as Error)?.message ?? String(err)
-                }`,
-              );
-            }
-          },
-          onAfterToolCallBlock: async (info) => {
-            // Style the replacement message consistently with BLOCK_RUN /
-            // BLOCK_OUTPUT so the SPA renders it as a clear "Agent failed"
-            // banner instead of a generic line. Avoid double-prefixing if
-            // the plugin already produced the styled wording.
-            const stylizedReplacement = info.replacementMessage.startsWith("⚠️ Agent failed")
-              ? info.replacementMessage
-              : `⚠️ Agent failed before reply: ${info.replacementMessage
-                  .replace(/^🚫\s*/, "🚫 ")
-                  .replace(/\.\s*$/, "")}.\nLogs: openclaw logs --follow`;
-            afterToolCallBlock = { ...info, replacementMessage: stylizedReplacement };
-            // Persist a user-facing block message as a new assistant
-            // message so the SPA's `chat.history` reload after `final`
-            // shows the block notice in the transcript. Tool result
-            // already on disk (truthful history) — only what comes after
-            // is suppressed.
-            try {
-              const { appendAssistantMessageToSessionTranscript } =
-                await import("../../../config/sessions/transcript.js");
-              await appendAssistantMessageToSessionTranscript({
-                agentId: sessionAgentId,
-                sessionKey: params.sessionKey,
-                text: stylizedReplacement,
-                idempotencyKey: `hook-block:after_tool_call:${params.runId}:${info.toolCallId}`,
-                updateMode: "inline",
-              });
-            } catch (err) {
-              log.warn(
-                `after_tool_call block: failed to persist replacement message: ${
-                  (err as Error)?.message ?? String(err)
-                }`,
-              );
-            }
-            // Force-emit terminal lifecycle (same reason as inline
-            // llm_output block — the SDK will skip its own agent_end on
-            // abort, so server-chat never sees a final/error frame).
-            try {
-              emitAgentEvent({
-                runId: params.runId,
-                stream: "lifecycle",
-                data: {
-                  phase: "error",
-                  error: stylizedReplacement,
-                  errorKind: "hook_block",
-                  hookOverride: true,
-                  livenessState: "blocked",
-                  endedAt: Date.now(),
-                },
-              });
-            } catch (err) {
-              log.warn(
-                `after_tool_call block: failed to emit terminal lifecycle: ${
-                  (err as Error)?.message ?? String(err)
-                }`,
-              );
-            }
-            // Abort the upstream prompt() call so the model does not
-            // consume the just-emitted tool result and does not iterate
-            // further this turn.
-            try {
-              void activeSession.abort();
-            } catch (err) {
-              log.warn(
-                `after_tool_call block: activeSession.abort() failed: ${
                   (err as Error)?.message ?? String(err)
                 }`,
               );
@@ -2704,7 +2585,7 @@ export async function runEmbeddedAttempt(
                     );
                     const blockedResult = await appendBlockedUserMessageToSessionTranscript({
                       agentId: sessionAgentId,
-                      sessionKey: params.sessionKey,
+                      sessionKey: params.sessionKey ?? "",
                       originalText: params.prompt,
                       redactedText: blockReplacementMsg,
                       pluginId: beforeRunPluginId,
@@ -2759,7 +2640,7 @@ export async function runEmbeddedAttempt(
                         await import("../../../config/sessions/transcript.js");
                       await appendBlockedUserMessageToSessionTranscript({
                         agentId: sessionAgentId,
-                        sessionKey: params.sessionKey,
+                        sessionKey: params.sessionKey ?? "",
                         originalText: params.prompt,
                         redactedText: denyReplacementMsg,
                         pluginId: beforeRunPluginId,
@@ -2789,7 +2670,7 @@ export async function runEmbeddedAttempt(
                           await import("../../../config/sessions/transcript.js");
                         await appendBlockedUserMessageToSessionTranscript({
                           agentId: sessionAgentId,
-                          sessionKey: params.sessionKey,
+                          sessionKey: params.sessionKey ?? "",
                           originalText: params.prompt,
                           redactedText: timeoutMsg,
                           pluginId: beforeRunPluginId,
@@ -3018,14 +2899,6 @@ export async function runEmbeddedAttempt(
             // attempt.summary uses it as the user-visible reply text.
             assistantTexts.length = 0;
             assistantTexts.push(inlineLlmOutputBlock.replacementMessage);
-          } else if (afterToolCallBlock) {
-            // Same shape as inline llm_output block but triggered from
-            // the after_tool_call hook. The tool already executed but the
-            // model is prevented from iterating further this turn.
-            promptError = new Error(afterToolCallBlock.replacementMessage);
-            promptErrorSource = "hook:llm_output";
-            assistantTexts.length = 0;
-            assistantTexts.push(afterToolCallBlock.replacementMessage);
           } else {
             promptError = err;
             promptErrorSource = "prompt";
@@ -3383,11 +3256,6 @@ export async function runEmbeddedAttempt(
           promptErrorSource = "hook:llm_output";
           assistantTexts.length = 0;
           assistantTexts.push(inlineLlmOutputBlock.replacementMessage);
-        } else if (afterToolCallBlock && !promptError) {
-          promptError = new Error(afterToolCallBlock.replacementMessage);
-          promptErrorSource = "hook:llm_output";
-          assistantTexts.length = 0;
-          assistantTexts.push(afterToolCallBlock.replacementMessage);
         }
 
         // Inline-block path: when the stream subscriber already redacted the
@@ -3398,11 +3266,8 @@ export async function runEmbeddedAttempt(
         // listeners never see `state: "error"` or `state: "final"` and
         // hang until timeout. Resolve the lifecycle here for the inline path,
         // then skip the legacy block.
-        if (inlineLlmOutputBlock || afterToolCallBlock) {
-          const blockMsg =
-            inlineLlmOutputBlock?.replacementMessage ??
-            afterToolCallBlock?.replacementMessage ??
-            "blocked by hook";
+        if (inlineLlmOutputBlock) {
+          const blockMsg = inlineLlmOutputBlock.replacementMessage;
           const errMsg =
             promptError instanceof Error
               ? promptError.message
@@ -3480,7 +3345,7 @@ export async function runEmbeddedAttempt(
                   await import("../../../config/sessions/transcript.js");
                 await appendAssistantMessageToSessionTranscript({
                   agentId: hookAgentId,
-                  sessionKey: params.sessionKey,
+                  sessionKey: params.sessionKey ?? "",
                   text: replacementMessage,
                   idempotencyKey: `hook-block:${hookPoint}:${params.runId}`,
                   updateMode: "inline",
@@ -3665,8 +3530,6 @@ export async function runEmbeddedAttempt(
       const observedReplayMetadata = buildAttemptReplayMetadata({
         toolMetas: toolMetasNormalized,
         didSendViaMessagingTool: didSendViaMessagingTool(),
-        messagingToolSentTexts: getMessagingToolSentTexts(),
-        messagingToolSentMediaUrls: getMessagingToolSentMediaUrls(),
         successfulCronAdds: getSuccessfulCronAdds(),
       });
       const replayMetadata = replayMetadataFromState(
@@ -3808,7 +3671,6 @@ export async function runEmbeddedAttempt(
           allowWsSessionPool:
             !promptError && !aborted && !timedOut && !idleTimedOut && !timedOutDuringCompaction,
           sessionId: params.sessionId,
-          bundleMcpRuntime,
           bundleLspRuntime,
           sessionLock,
         });

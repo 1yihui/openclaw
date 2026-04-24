@@ -37,11 +37,7 @@ import { normalizeMessageChannel } from "../../utils/message-channel.js";
 import { isReasoningTagProvider } from "../../utils/provider-utils.js";
 import { resolveOpenClawAgentDir } from "../agent-paths.js";
 import { resolveSessionAgentIds } from "../agent-scope.js";
-import {
-  makeBootstrapWarn,
-  resolveBootstrapContextForRun,
-  resolveContextInjectionMode,
-} from "../bootstrap-files.js";
+import { makeBootstrapWarn, resolveBootstrapContextForRun } from "../bootstrap-files.js";
 import {
   listChannelSupportedActions,
   resolveChannelMessageToolCapabilities,
@@ -55,7 +51,7 @@ import {
 import { resolveContextWindowInfo } from "../context-window-guard.js";
 import { formatUserTime, resolveUserTimeFormat, resolveUserTimezone } from "../date-time.js";
 import { DEFAULT_CONTEXT_TOKENS, DEFAULT_MODEL, DEFAULT_PROVIDER } from "../defaults.js";
-import { resolveOpenClawReferencePaths } from "../docs-path.js";
+import { resolveOpenClawDocsPath } from "../docs-path.js";
 import { resolveHeartbeatPromptForSystemPrompt } from "../heartbeat-system-prompt.js";
 import {
   applyAuthHeaderOverride,
@@ -84,7 +80,6 @@ import type { AgentRuntimePlan } from "../runtime-plan/types.js";
 import { ensureRuntimePluginsLoaded } from "../runtime-plugins.js";
 import { resolveSandboxContext } from "../sandbox.js";
 import { repairSessionFileIfNeeded } from "../session-file-repair.js";
-import { guardSessionManager } from "../session-tool-result-guard-wrapper.js";
 import { sanitizeToolUseResultPairing } from "../session-transcript-repair.js";
 import {
   acquireSessionWriteLock,
@@ -475,20 +470,17 @@ export async function compactEmbeddedPiSessionDirect(
 
     const sessionLabel = params.sessionKey ?? params.sessionId;
     const resolvedMessageProvider = params.messageChannel ?? params.messageProvider;
-    const contextInjectionMode = resolveContextInjectionMode(params.config);
-    const { contextFiles } =
-      contextInjectionMode === "never"
-        ? { contextFiles: [] }
-        : await resolveBootstrapContextForRun({
-            workspaceDir: effectiveWorkspace,
-            config: params.config,
-            sessionKey: params.sessionKey,
-            sessionId: params.sessionId,
-            warn: makeBootstrapWarn({
-              sessionLabel,
-              warn: (message) => log.warn(message),
-            }),
-          });
+    const { contextFiles } = await resolveBootstrapContextForRun({
+      workspaceDir: effectiveWorkspace,
+      config: params.config,
+      sessionKey: params.sessionKey,
+      sessionId: params.sessionId,
+      warn: makeBootstrapWarn({
+        sessionLabel,
+        workspaceDir: effectiveWorkspace,
+        warn: (message) => log.warn(message),
+      }),
+    });
     // Apply contextTokens cap to model so pi-coding-agent's auto-compaction
     // threshold uses the effective limit, not the native context window.
     const runtimeModelWithContext = runtimeModel as ProviderRuntimeModel;
@@ -715,7 +707,7 @@ export async function compactEmbeddedPiSessionDirect(
       isSubagentSessionKey(params.sessionKey) || isCronSessionKey(params.sessionKey)
         ? "minimal"
         : "full";
-    const openClawReferences = await resolveOpenClawReferencePaths({
+    const docsPath = await resolveOpenClawDocsPath({
       workspaceDir: effectiveWorkspace,
       argv1: process.argv[1],
       cwd: effectiveWorkspace,
@@ -759,8 +751,7 @@ export async function compactEmbeddedPiSessionDirect(
             defaultAgentId,
           }),
           skillsPrompt,
-          docsPath: openClawReferences.docsPath ?? undefined,
-          sourcePath: openClawReferences.sourcePath ?? undefined,
+          docsPath: docsPath ?? undefined,
           ttsHint,
           promptMode,
           acpEnabled: params.config?.acp?.enabled !== false,
@@ -812,20 +803,7 @@ export async function compactEmbeddedPiSessionDirect(
       });
       await prewarmSessionFile(params.sessionFile);
       const transcriptPolicy = runtimePlan.transcript.resolvePolicy(runtimePlanModelContext);
-      const sessionManager = guardSessionManager(SessionManager.open(params.sessionFile), {
-        agentId: sessionAgentId,
-        sessionKey: params.sessionKey,
-        config: params.config,
-        contextWindowTokens: ctxInfo.tokens,
-        allowSyntheticToolResults: transcriptPolicy.allowSyntheticToolResults,
-        missingToolResultText:
-          model.api === "openai-responses" ||
-          model.api === "azure-openai-responses" ||
-          model.api === "openai-codex-responses"
-            ? "aborted"
-            : undefined,
-        allowedToolNames,
-      });
+      const sessionManager = SessionManager.open(params.sessionFile);
       checkpointSnapshot = captureCompactionCheckpointSnapshot({
         sessionManager,
         sessionFile: params.sessionFile,
@@ -979,11 +957,6 @@ export async function compactEmbeddedPiSessionDirect(
           const limited = transcriptPolicy.repairToolUseResultPairing
             ? sanitizeToolUseResultPairing(truncated, {
                 erroredAssistantResultPolicy: "drop",
-                ...(model.api === "openai-responses" ||
-                model.api === "azure-openai-responses" ||
-                model.api === "openai-codex-responses"
-                  ? { missingToolResultText: "aborted" }
-                  : {}),
               })
             : truncated;
           if (limited.length > 0) {
@@ -1078,8 +1051,6 @@ export async function compactEmbeddedPiSessionDirect(
             try {
               const hardenedBoundary = await hardenManualCompactionBoundary({
                 sessionFile: params.sessionFile,
-                preserveRecentTail:
-                  typeof params.config?.agents?.defaults?.compaction?.keepRecentTokens === "number",
               });
               if (hardenedBoundary.applied) {
                 effectiveFirstKeptEntryId =
@@ -1217,7 +1188,9 @@ export async function compactEmbeddedPiSessionDirect(
           try {
             await flushPendingToolResultsAfterIdle({
               agent: session?.agent,
-              sessionManager,
+              // SessionManager no longer wraps ToolResultFlushManager (guard
+              // wrapper removed); flush becomes a no-op.
+              sessionManager: null,
               clearPendingOnTimeout: true,
             });
           } catch {
