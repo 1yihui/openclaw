@@ -16,6 +16,32 @@ import {
   resolveSessionTranscriptCandidates,
 } from "./session-utils.fs.js";
 
+function buildSessionAssistantMessage(text: string, timestamp: number) {
+  return {
+    role: "assistant" as const,
+    content: [{ type: "text" as const, text }],
+    api: "openai",
+    provider: "openai",
+    model: "mock-1",
+    usage: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+      cost: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        total: 0,
+      },
+    },
+    stopReason: "stop" as const,
+    timestamp,
+  };
+}
+
 function registerTempSessionStore(
   prefix: string,
   assignPaths: (tmpDir: string, storePath: string) => void,
@@ -543,8 +569,12 @@ describe("readSessionMessages", () => {
     const sessionManager = SessionManager.create(tmpDir, tmpDir);
     const decoratedPrompt = 'Sender (untrusted metadata):\n```json\n{"label":"ui"}\n```\n\nhello';
     const visiblePrompt = "hello";
-    sessionManager.appendMessage({ role: "user", content: decoratedPrompt, timestamp: 1 });
-    sessionManager.appendMessage({ role: "assistant", content: "old answer", timestamp: 2 });
+    sessionManager.appendMessage({
+      role: "user",
+      content: [{ type: "text", text: decoratedPrompt }],
+      timestamp: 1,
+    });
+    sessionManager.appendMessage(buildSessionAssistantMessage("old answer", 2));
 
     const decoratedUser = sessionManager
       .getBranch()
@@ -555,8 +585,12 @@ describe("readSessionMessages", () => {
     } else {
       sessionManager.resetLeaf();
     }
-    sessionManager.appendMessage({ role: "user", content: visiblePrompt, timestamp: 1 });
-    sessionManager.appendMessage({ role: "assistant", content: "old answer", timestamp: 2 });
+    sessionManager.appendMessage({
+      role: "user",
+      content: [{ type: "text", text: visiblePrompt }],
+      timestamp: 1,
+    });
+    sessionManager.appendMessage(buildSessionAssistantMessage("old answer", 2));
 
     const sessionFile = sessionManager.getSessionFile();
     expect(sessionFile).toBeTruthy();
@@ -566,11 +600,11 @@ describe("readSessionMessages", () => {
     expect(
       out.map((message) => ({
         role: (message as { role?: string }).role,
-        content: (message as { content?: string }).content,
+        content: (message as { content?: unknown }).content,
       })),
     ).toEqual([
-      { role: "user", content: visiblePrompt },
-      { role: "assistant", content: "old answer" },
+      { role: "user", content: [{ type: "text", text: visiblePrompt }] },
+      { role: "assistant", content: [{ type: "text", text: "old answer" }] },
     ]);
   });
 

@@ -91,28 +91,6 @@ export type EmbeddedPiSubscribeState = {
   deterministicApprovalPromptPending: boolean;
   deterministicApprovalPromptSent: boolean;
   lastAssistant?: AgentMessage;
-
-  /**
-   * When `llm_output` hooks are registered, the terminal lifecycle event
-   * (phase "end" or "error") is deferred until the hook has finished
-   * inspecting the response.  `attempt.ts` calls
-   * `subscription.resolveTerminalLifecycle()` after processing the hook
-   * result — either confirming the original outcome or overriding it with
-   * an error.
-   */
-  deferredTerminalLifecycle?: {
-    emit: () => void;
-    emitError: (error: string, errorKind?: "hook_block") => void;
-  };
-
-  /**
-   * Set to true after the first inline `llm_output` hook fire in this turn.
-   * Inline hook fires only on the first assistant message that contains
-   * user-facing text (not thinking blocks). Subsequent assistant messages
-   * in the same turn are not re-checked. The runner uses this to make the
-   * post-`prompt()` `llm_output` invocation a no-op when inline already ran.
-   */
-  inlineLlmOutputFired?: boolean;
 };
 
 export type EmbeddedPiSubscribeContext = {

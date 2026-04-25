@@ -230,9 +230,7 @@ describe("redactMessages", () => {
   // Regression suite: real session-file shape used by the embedded runner.
   // Entries are wrapped as { type: "message", message: { role, content: [{type:"text",text}] } }.
   // Before the fix, the `match` filter only inspected top-level role/content,
-  // never matched these entries, and `redactMessages` returned 0 — leaving
-  // hook-blocked LLM output on disk and visible after the SPA reloaded
-  // history.
+  // never matched these entries, and `redactMessages` returned 0.
   describe("real session-file shape (regression)", () => {
     function runnerMessage(role: "user" | "assistant" | "tool", text: string) {
       return {
@@ -285,10 +283,7 @@ describe("redactMessages", () => {
       expect(texts).toEqual(["safe response", "another safe one"]);
     });
 
-    it("removes the streamed assistant response that the llm_output block hook scrubs", async () => {
-      // Mirrors the exact call shape from
-      // src/agents/pi-embedded-runner/run/attempt.ts replaceLlmOutputResponse:
-      //   match: { role: "assistant", contentSubstring: assistantTexts[0].slice(0,100) }
+    it("removes a nested assistant response by content substring", async () => {
       const streamed =
         "Here's a fun fact: **Platypuses glow under UV light!** When exposed to ultraviolet light, their fur fluoresces a blue-green color.";
       await writeTranscript([

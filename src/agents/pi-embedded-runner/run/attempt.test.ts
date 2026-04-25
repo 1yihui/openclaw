@@ -1,18 +1,25 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { streamSimple } from "@mariozechner/pi-ai";
+import { SessionManager } from "@mariozechner/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../../../config/config.js";
 import { appendBootstrapPromptWarning } from "../../bootstrap-budget.js";
 import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../../system-prompt-cache-boundary.js";
 import { buildAgentSystemPrompt } from "../../system-prompt.js";
+import { createMockUsage } from "../../test-helpers/pi-embedded-runner-e2e-fixtures.js";
 import {
   buildContextEnginePromptCacheInfo,
   buildAfterTurnRuntimeContext,
   buildAfterTurnRuntimeContextFromUsage,
   composeSystemPromptWithHookContext,
+  consumeFirstVisibleAssistantMessageEndGate,
   decodeHtmlEntitiesInObject,
   applyEmbeddedAttemptToolsAllow,
   isPrimaryBootstrapRun,
   mergeOrphanedTrailingUserPrompt,
+  prepareMessageEndRetryContinuation,
   prependSystemPromptAddition,
   remapInjectedContextFilesToWorkspace,
   resetEmbeddedAgentBaseStreamFnCacheForTest,
@@ -62,6 +69,112 @@ async function invokeWrappedTestStream(
   const wrappedFn = wrap(baseFn);
   return await Promise.resolve(wrappedFn({} as never, {} as never, {} as never));
 }
+
+function userTextMessage(text: string) {
+  return {
+    role: "user" as const,
+    content: [{ type: "text" as const, text }],
+    timestamp: Date.now(),
+  };
+}
+
+function assistantTextMessage(text: string) {
+  return {
+    role: "assistant" as const,
+    content: [{ type: "text" as const, text }],
+    api: "openai",
+    provider: "openai",
+    model: "mock-1",
+    usage: createMockUsage(1, 1),
+    stopReason: "stop" as const,
+    timestamp: Date.now(),
+  };
+}
+
+describe("prepareMessageEndRetryContinuation", () => {
+  it("continues from the original user prompt instead of appending a duplicate retry user", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "openclaw-message-end-retry-"));
+    try {
+      const sessionManager = SessionManager.open(join(tempDir, "session.jsonl"));
+      const userMessage = userTextMessage("hello");
+      const originalUserId = sessionManager.appendMessage(userMessage);
+      sessionManager.appendMessage(assistantTextMessage(""));
+
+      const nextMessages = prepareMessageEndRetryContinuation(sessionManager, [
+        userMessage,
+        assistantTextMessage(""),
+      ]);
+
+      expect(sessionManager.getLeafId()).toBe(originalUserId);
+      expect(nextMessages).toEqual([userMessage]);
+
+      sessionManager.appendMessage(assistantTextMessage("clean retry"));
+      const visibleBranch = sessionManager
+        .getBranch()
+        .filter((entry) => entry.type === "message")
+        .map((entry) => entry.message.role);
+      expect(visibleBranch).toEqual(["user", "assistant"]);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not prepare continuation when the rejected assistant text is still visible", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "openclaw-message-end-retry-"));
+    try {
+      const sessionManager = SessionManager.open(join(tempDir, "session.jsonl"));
+      const userMessage = userTextMessage("hello");
+      const originalUserId = sessionManager.appendMessage(userMessage);
+      sessionManager.appendMessage(assistantTextMessage("visible"));
+
+      const nextMessages = prepareMessageEndRetryContinuation(sessionManager, [
+        userMessage,
+        assistantTextMessage("visible"),
+      ]);
+
+      expect(nextMessages).toBeNull();
+      expect(sessionManager.getLeafId()).not.toBe(originalUserId);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("consumeFirstVisibleAssistantMessageEndGate", () => {
+  it("consumes only the first visible assistant message_end event", () => {
+    const state = { consumed: false };
+    const first = consumeFirstVisibleAssistantMessageEndGate(
+      state,
+      { type: "message_end", message: assistantTextMessage("first") },
+      true,
+    );
+    const second = consumeFirstVisibleAssistantMessageEndGate(
+      state,
+      { type: "message_end", message: assistantTextMessage("second") },
+      true,
+    );
+
+    expect(first?.visibleText).toBe("first");
+    expect(second).toBeNull();
+  });
+
+  it("waits for the first visible assistant text when earlier message_end events have no text", () => {
+    const state = { consumed: false };
+    const empty = consumeFirstVisibleAssistantMessageEndGate(
+      state,
+      { type: "message_end", message: assistantTextMessage("   ") },
+      true,
+    );
+    const visible = consumeFirstVisibleAssistantMessageEndGate(
+      state,
+      { type: "message_end", message: assistantTextMessage("ready") },
+      true,
+    );
+
+    expect(empty).toBeNull();
+    expect(visible?.visibleText).toBe("ready");
+  });
+});
 
 describe("applyEmbeddedAttemptToolsAllow", () => {
   it("keeps explicit toolsAllow authoritative after force-added tools are built", () => {

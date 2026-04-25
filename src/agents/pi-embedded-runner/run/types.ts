@@ -32,7 +32,7 @@ export type EmbeddedRunAttemptParams = EmbeddedRunAttemptBase & {
   authProfileId?: string;
   /** Source for the resolved auth profile (user-locked or automatic). */
   authProfileIdSource?: "auto" | "user";
-  /** Carry forward the retry count from prior attempts for `llm_output` block retries. */
+  /** Carry forward the retry count from prior attempts for `llm_message_end` block retries. */
   llmOutputRetryCount?: number;
   provider: string;
   modelId: string;
@@ -65,7 +65,7 @@ export type EmbeddedRunAttemptResult = {
    * - "precheck": pre-prompt overflow recovery intentionally short-circuited the prompt so the
    *   outer run loop can recover via compaction/truncation before any model call is made.
    * - "hook:before_agent_run": a lifecycle hook blocked the run before the prompt was sent.
-   * - "hook:llm_output": a lifecycle hook blocked/redacted the LLM output after response.
+   * - "hook:llm_message_end": a lifecycle hook blocked/redacted the first assistant message.
    * - null: no promptError.
    */
   promptErrorSource:
@@ -73,7 +73,7 @@ export type EmbeddedRunAttemptResult = {
     | "compaction"
     | "precheck"
     | "hook:before_agent_run"
-    | "hook:llm_output"
+    | "hook:llm_message_end"
     | null;
   preflightRecovery?:
     | {
@@ -116,13 +116,13 @@ export type EmbeddedRunAttemptResult = {
   /** True when sessions_yield tool was called during this attempt. */
   yieldDetected?: boolean;
   /**
-   * True when an `llm_output` lifecycle hook returned `block` with
+   * True when an `llm_message_end` lifecycle hook returned `block` with
    * `retry: true` and the retry budget had not yet been exhausted, so the
    * outer run loop should re-invoke the LLM rather than surface the
    * replacement message.
    */
   llmOutputRetryRequested?: boolean;
-  /** Number of `llm_output` block retries already consumed by this attempt. */
+  /** Number of `llm_message_end` block retries already consumed by this attempt. */
   llmOutputRetryCount?: number;
   replayMetadata: EmbeddedRunReplayMetadata;
   itemLifecycle: {

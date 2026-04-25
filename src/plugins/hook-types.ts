@@ -20,12 +20,7 @@ import type {
   PluginHookBeforePromptBuildEvent,
   PluginHookBeforePromptBuildResult,
 } from "./hook-before-agent-start.types.js";
-import type {
-  HookDecision,
-  InputGateDecision,
-  OutputGateDecision,
-  HookController,
-} from "./hook-decision-types.js";
+import type { HookDecision, InputGateDecision, HookController } from "./hook-decision-types.js";
 import type {
   PluginHookInboundClaimContext,
   PluginHookInboundClaimEvent,
@@ -67,6 +62,7 @@ export type PluginHookName =
   | "before_agent_reply"
   | "llm_input"
   | "llm_output"
+  | "llm_message_end"
   | "agent_end"
   | "before_compaction"
   | "after_compaction"
@@ -99,6 +95,7 @@ export const PLUGIN_HOOK_NAMES = [
   "before_agent_reply",
   "llm_input",
   "llm_output",
+  "llm_message_end",
   "agent_end",
   "before_compaction",
   "after_compaction",
@@ -150,6 +147,7 @@ export const isPromptInjectionHookName = (hookName: PluginHookName): boolean =>
 export const CONVERSATION_HOOK_NAMES = [
   "llm_input",
   "llm_output",
+  "llm_message_end",
   "agent_end",
 ] as const satisfies readonly PluginHookName[];
 
@@ -225,6 +223,8 @@ export type PluginHookLlmOutputEvent = {
     total?: number;
   };
 };
+
+export type PluginHookLlmMessageEndEvent = PluginHookLlmOutputEvent;
 
 export type PluginHookAgentEndEvent = {
   runId?: string;
@@ -668,7 +668,7 @@ export type PluginHookBeforeInstallResult = {
 };
 
 // ---------------------------------------------------------------------------
-// before_agent_run — Lifecycle Gate Hook (Milestone 1)
+// before_agent_run — Lifecycle Gate Hook
 // ---------------------------------------------------------------------------
 
 /** Event payload for the before_agent_run gate hook. */
@@ -718,8 +718,12 @@ export type PluginHookHandlerMap = {
   llm_output: (
     event: PluginHookLlmOutputEvent,
     ctx: PluginHookAgentContext,
+  ) => Promise<void> | void;
+  llm_message_end: (
+    event: PluginHookLlmMessageEndEvent,
+    ctx: PluginHookAgentContext,
     controller?: HookController,
-  ) => Promise<OutputGateDecision | void> | OutputGateDecision | void;
+  ) => Promise<HookDecision | void> | HookDecision | void;
   agent_end: (event: PluginHookAgentEndEvent, ctx: PluginHookAgentContext) => Promise<void> | void;
   before_compaction: (
     event: PluginHookBeforeCompactionEvent,

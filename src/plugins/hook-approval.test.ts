@@ -11,7 +11,7 @@ vi.mock("../gateway/call.js", () => ({
   callGateway: (...args: unknown[]) => callGatewayMock(...args),
 }));
 
-import { requestPluginApproval } from "./hook-approval.js";
+import { requestHookApproval, requestPluginApproval } from "./hook-approval.js";
 import { PluginApprovalResolutions } from "./hook-types.js";
 
 describe("requestPluginApproval", () => {
@@ -43,6 +43,9 @@ describe("requestPluginApproval", () => {
         method: "plugin.approval.request",
         deviceIdentity: null,
         scopes: ["operator.approvals"],
+        params: expect.objectContaining({
+          allowedDecisions: undefined,
+        }),
       }),
     );
     expect(callGatewayMock).toHaveBeenNthCalledWith(
@@ -51,6 +54,36 @@ describe("requestPluginApproval", () => {
         method: "plugin.approval.waitDecision",
         deviceIdentity: null,
         scopes: ["operator.approvals"],
+      }),
+    );
+  });
+
+  it("limits lifecycle hook approvals to one-shot allow or deny decisions", async () => {
+    callGatewayMock.mockImplementation(async (opts: { method?: unknown }) => {
+      if (opts.method === "plugin.approval.request") {
+        return { id: "plugin:approval-1", decision: "allow-always" };
+      }
+      throw new Error(`unexpected method ${String(opts.method)}`);
+    });
+
+    const result = await requestHookApproval({
+      hookPoint: "llm_message_end",
+      pluginId: "confirm-before-run",
+      decision: {
+        outcome: "ask",
+        reason: "needs review",
+        title: "Approve output",
+        description: "Approve this assistant message?",
+      },
+    });
+
+    expect(result).toBe(PluginApprovalResolutions.ALLOW_ONCE);
+    expect(callGatewayMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: "plugin.approval.request",
+        params: expect.objectContaining({
+          allowedDecisions: [PluginApprovalResolutions.ALLOW_ONCE, PluginApprovalResolutions.DENY],
+        }),
       }),
     );
   });

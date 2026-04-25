@@ -16,7 +16,7 @@ const hookMocks = vi.hoisted(() => ({
     hasHooks: vi.fn(() => true),
     hasAsyncHooks: vi.fn(() => true),
     fireAsync: vi.fn(() => () => {}),
-    runAfterToolCall: vi.fn(async () => {}),
+    runAfterToolCall: vi.fn(async (_event: unknown, _context: unknown) => {}),
     runBeforeToolCall: vi.fn(async () => {}),
   },
 }));
@@ -192,8 +192,7 @@ describe("after_tool_call fires exactly once in embedded runs", () => {
     });
 
     // The hook must fire exactly once — not zero, not two.
-    expect(hookMocks.runner.fireAsync).toHaveBeenCalledTimes(1);
-    expect(hookMocks.runner.fireAsync.mock.calls[0]?.[0]).toBe("after_tool_call");
+    expect(hookMocks.runner.runAfterToolCall).toHaveBeenCalledTimes(1);
   });
 
   it("fires after_tool_call exactly once on error when both adapter and handler are active", async () => {
@@ -215,12 +214,10 @@ describe("after_tool_call fires exactly once in embedded runs", () => {
       result: { status: "error", error: "tool failed" },
     });
 
-    expect(hookMocks.runner.fireAsync).toHaveBeenCalledTimes(1);
+    expect(hookMocks.runner.runAfterToolCall).toHaveBeenCalledTimes(1);
 
-    const call = hookMocks.runner.fireAsync.mock.calls[0];
-    const hookName = call?.[0];
-    const hookEvent = call?.[1] as { error?: unknown } | undefined;
-    expect(hookName).toBe("after_tool_call");
+    const call = hookMocks.runner.runAfterToolCall.mock.calls[0];
+    const hookEvent = call?.[0] as { error?: unknown } | undefined;
     expect(hookEvent?.error).toBeDefined();
   });
 
@@ -251,7 +248,9 @@ describe("after_tool_call fires exactly once in embedded runs", () => {
       toolCallId,
       "integration-test",
     );
-    const event = hookMocks.runner.fireAsync.mock.calls[0]?.[1] as { params?: unknown } | undefined;
+    const event = hookMocks.runner.runAfterToolCall.mock.calls[0]?.[0] as
+      | { params?: unknown }
+      | undefined;
     expect(event?.params).toEqual(adjusted);
   });
 
@@ -276,11 +275,6 @@ describe("after_tool_call fires exactly once in embedded runs", () => {
       });
     }
 
-    expect(hookMocks.runner.fireAsync).toHaveBeenCalledTimes(3);
-    expect(hookMocks.runner.fireAsync.mock.calls.map((call) => call[0])).toEqual([
-      "after_tool_call",
-      "after_tool_call",
-      "after_tool_call",
-    ]);
+    expect(hookMocks.runner.runAfterToolCall).toHaveBeenCalledTimes(3);
   });
 });

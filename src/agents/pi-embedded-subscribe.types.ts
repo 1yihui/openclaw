@@ -48,30 +48,4 @@ export type SubscribeEmbeddedPiSessionParams = {
    */
   builtinToolNames?: ReadonlySet<string>;
   internalEvents?: AgentInternalEvent[];
-  /**
-   * Hook context fields needed to invoke `llm_output` inline from the stream
-   * subscriber. When provided, `handleMessageEnd` will fire the hook on the
-   * first assistant message that contains user-facing text in this turn.
-   */
-  inlineLlmOutputContext?: {
-    agentId: string;
-    sessionKey: string;
-    workspaceDir?: string;
-    trigger?: string;
-    channelId?: string;
-    provider: string;
-    modelId: string;
-    userPromptText?: string;
-  };
-  /**
-   * Invoked by the subscriber when an inline `llm_output` block decision
-   * lands. The runner uses this to scrub the persisted transcript, surface
-   * the block error to the user, and abort `activeSession.prompt()`.
-   */
-  onInlineLlmOutputBlock?: (info: {
-    replacementMessage: string;
-    reason: string;
-    pluginId: string;
-    blockedAssistantText: string;
-  }) => void | Promise<void>;
 };

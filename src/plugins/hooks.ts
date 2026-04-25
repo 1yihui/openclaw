@@ -12,8 +12,7 @@ import {
   type HookDecision,
   type HookController,
   type GateHookResult,
-  type InputGateDecision,
-  type OutputGateDecision,
+  type MessageEndGateDecision,
   isHookDecision,
   mergeHookDecisions,
 } from "./hook-decision-types.js";
@@ -42,6 +41,7 @@ import type {
   PluginHookInboundClaimEvent,
   PluginHookInboundClaimResult,
   PluginHookLlmInputEvent,
+  PluginHookLlmMessageEndEvent,
   PluginHookLlmOutputEvent,
   PluginHookBeforeResetEvent,
   PluginHookBeforeToolCallEvent,
@@ -624,27 +624,29 @@ export function createHookRunner(
   /**
    * Run llm_output hook.
    * Allows plugins to observe the exact output payload returned by the LLM.
-   * Returns the most-restrictive HookDecision from all sync handlers.
+   * Runs in parallel (fire-and-forget).
    */
-  async function runLlmOutput(
-    event: PluginHookLlmOutputEvent,
+  async function runLlmOutput(event: PluginHookLlmOutputEvent, ctx: PluginHookAgentContext) {
+    return runVoidHook("llm_output", event, ctx);
+  }
+
+  /**
+   * Run llm_message_end hook.
+   * Allows plugins to gate each visible assistant message before tools continue.
+   */
+  async function runLlmMessageEnd(
+    event: PluginHookLlmMessageEndEvent,
     ctx: PluginHookAgentContext,
-  ): Promise<GateHookResult<OutputGateDecision> | undefined> {
+  ): Promise<GateHookResult | undefined> {
     let winningPluginId: string | undefined;
-    const decision = await runModifyingHook<"llm_output", HookDecision | undefined>(
-      "llm_output",
+    const decision = await runModifyingHook<"llm_message_end", HookDecision | undefined>(
+      "llm_message_end",
       event,
       ctx,
       {
         mergeResults: (_acc, next, reg): HookDecision | undefined => {
           if (!isHookDecision(next)) {
             return _acc ?? next;
-          }
-          if (next.outcome === "ask") {
-            logger?.warn?.(
-              `[hooks] llm_output handler from ${reg.pluginId} returned ask, but llm_output cannot pause safely; ignoring`,
-            );
-            return _acc;
           }
           const merged = mergeHookDecisions(_acc, next);
           if (merged === next) {
@@ -660,7 +662,7 @@ export function createHookRunner(
     if (!decision) {
       return undefined;
     }
-    return { decision: decision as OutputGateDecision, pluginId: winningPluginId ?? "unknown" };
+    return { decision: decision as MessageEndGateDecision, pluginId: winningPluginId ?? "unknown" };
   }
 
   /**
@@ -826,7 +828,7 @@ export function createHookRunner(
   // =========================================================================
 
   // =========================================================================
-  // Lifecycle Gate Hooks (Milestones 1 & 2)
+  // Lifecycle Gate Hooks
   // =========================================================================
 
   /**
@@ -838,7 +840,7 @@ export function createHookRunner(
   async function runBeforeAgentRun(
     event: PluginHookBeforeAgentRunEvent,
     ctx: PluginHookAgentContext,
-  ): Promise<GateHookResult<InputGateDecision> | undefined> {
+  ): Promise<GateHookResult | undefined> {
     let winningPluginId: string | undefined;
     const decision = await runModifyingHook<"before_agent_run", HookDecision>(
       "before_agent_run",
@@ -1285,6 +1287,7 @@ export function createHookRunner(
     runBeforeAgentReply,
     runLlmInput,
     runLlmOutput,
+    runLlmMessageEnd,
     runAgentEnd,
     runBeforeCompaction,
     runAfterCompaction,

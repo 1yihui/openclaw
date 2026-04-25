@@ -1,5 +1,5 @@
 /**
- * Hook Redaction API — Milestone 4
+ * Hook Redaction API
  *
  * Provides the `redactMessages()` function for hard-deleting messages
  * from session transcripts. This is a general-purpose core capability —
@@ -158,7 +158,7 @@ export async function redactMessages(
       break;
     } catch (err) {
       lastError = err;
-      const delay = 100 * Math.pow(2, attempt);
+      const delay = 100 * 2 ** attempt;
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
@@ -251,8 +251,8 @@ export async function redactDuplicateUserMessage(
     sessionFile,
     { indices: [latestDuplicateIndex] },
     {
-      reason: "Removed duplicate user prompt created by llm_output retry",
-      hookPoint: "llm_output:retry:user_dedupe",
+      reason: "Removed duplicate user prompt created by llm_message_end retry",
+      hookPoint: "llm_message_end:retry:user_dedupe",
       pluginId: "core",
       timestamp: Date.now(),
       category: "retry_dedupe",

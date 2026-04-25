@@ -67,6 +67,7 @@ export function createPluginApprovalHandlers(
         turnSourceTo?: string | null;
         turnSourceAccountId?: string | null;
         turnSourceThreadId?: string | number | null;
+        allowedDecisions?: string[];
         timeoutMs?: number;
         twoPhase?: boolean;
       };
@@ -78,6 +79,9 @@ export function createPluginApprovalHandlers(
 
       const normalizeTrimmedString = (value?: string | null): string | null =>
         normalizeOptionalString(value) || null;
+      const allowedDecisions = Array.isArray(p.allowedDecisions)
+        ? p.allowedDecisions.filter(isApprovalDecision)
+        : [];
 
       const request: PluginApprovalRequestPayload = {
         pluginId: p.pluginId ?? null,
@@ -92,6 +96,7 @@ export function createPluginApprovalHandlers(
         turnSourceTo: normalizeTrimmedString(p.turnSourceTo),
         turnSourceAccountId: normalizeTrimmedString(p.turnSourceAccountId),
         turnSourceThreadId: p.turnSourceThreadId ?? null,
+        ...(allowedDecisions.length > 0 ? { allowedDecisions } : {}),
       };
 
       // Always server-generate the ID — never accept plugin-provided IDs.

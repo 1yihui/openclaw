@@ -747,7 +747,7 @@ export async function runEmbeddedPiAgent(
         let accumulatedReplayState = createEmbeddedRunReplayState();
         // Hoisted so the retry-limit error path can use the most recent API total.
         let lastTurnTotal: number | undefined;
-        // Carry forward the llm_output block retry count across attempts.
+        // Carry forward the llm_message_end block retry count across attempts.
         let llmOutputRetryCountCarry = 0;
         while (true) {
           if (runLoopIterations >= MAX_RUN_LOOP_ITERATIONS) {
@@ -948,7 +948,7 @@ export async function runEmbeddedPiAgent(
             currentAttemptAssistant,
           } = attempt;
           // promptError / promptErrorSource may be cleared by lifecycle-hook
-          // handling below (e.g. `hook:llm_output` block decisions are policy
+          // handling below (e.g. `hook:llm_message_end` block decisions are policy
           // decisions, not LLM failures, and must not enter the failover path).
           let promptError = attempt.promptError;
           let promptErrorSource = attempt.promptErrorSource;
@@ -1389,13 +1389,13 @@ export async function runEmbeddedPiAgent(
             };
           }
 
-          // Lifecycle hook (`llm_output`) `block` decisions are not LLM/transport
+          // Lifecycle hook (`llm_message_end`) `block` decisions are not LLM/transport
           // failures — they are policy decisions made on a successful response.
           // They must NOT enter the failover/model-rotation logic below; either
           // we retry (when the plugin asked for it and the budget allows), or
           // we let the rest of this turn run normally so the replacement
           // assistant text is delivered as a completed turn (no error).
-          if (promptErrorSource === "hook:llm_output" && !aborted) {
+          if (promptErrorSource === "hook:llm_message_end" && !aborted) {
             // Update carry so the next attempt knows how many retries were consumed.
             llmOutputRetryCountCarry = attempt.llmOutputRetryCount ?? 0;
             if (attempt.llmOutputRetryRequested) {
@@ -1404,7 +1404,7 @@ export async function runEmbeddedPiAgent(
               promptError = null;
               promptErrorSource = null;
               log.debug(
-                `[hook:llm_output] block requested retry — re-invoking attempt (count=${llmOutputRetryCountCarry})`,
+                `[hook:llm_message_end] block requested retry — re-invoking attempt (count=${llmOutputRetryCountCarry})`,
               );
               continue;
             }

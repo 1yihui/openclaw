@@ -1,5 +1,5 @@
 /**
- * Hook Decision Types — Milestone 0
+ * Hook Decision Types
  *
  * Structured decision contract for gate/policy hooks.
  * Core is outcome-agnostic — it handles the mechanics of each outcome
@@ -33,7 +33,7 @@ export const DEFAULT_BLOCK_MAX_RETRIES = 3;
 
 /**
  * Content is blocked. Core handles the mechanics:
- *  - For `llm_output`: replace the assistant response text with `message`
+ *  - For `llm_message_end`: replace the assistant response text with `message`
  *    (or the default message) and end the turn normally — NOT an error.
  *    If `retry` is true, the LLM is asked to try again until `maxRetries`
  *    is exhausted, after which the turn ends with the block message.
@@ -63,7 +63,7 @@ export type HookDecisionBlock = {
   userMessage?: string;
   /**
    * If true, retry the LLM call (same model, same prompt) instead of
-   * terminating the turn. Only meaningful for `llm_output`. Default: false.
+   * terminating the turn. Only meaningful for `llm_message_end`. Default: false.
    */
   retry?: boolean;
   /**
@@ -152,12 +152,15 @@ export function isHookDecision(value: unknown): value is HookDecision {
 /** Outcomes valid for input gates (before_agent_run). */
 export type InputGateDecision = HookDecisionPass | HookDecisionBlock | HookDecisionAsk;
 
-/** Outcomes valid for output gates (llm_output, after_tool_call). */
+/** Outcomes valid for output gates (llm_message_end, after_tool_call). */
 export type OutputGateDecision = HookDecisionPass | HookDecisionBlock;
+
+/** Outcomes valid for message-end gates. */
+export type MessageEndGateDecision = HookDecisionPass | HookDecisionBlock | HookDecisionAsk;
 
 /**
  * A gate hook decision paired with the pluginId that produced it.
- * Returned by `runBeforeAgentRun` and `runLlmOutput` so callers can
+ * Returned by gate hook runners so callers can
  * attribute approval requests and audit entries to the originating plugin.
  */
 export type GateHookResult<TDecision extends HookDecision = HookDecision> = {

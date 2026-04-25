@@ -605,10 +605,10 @@ export function handleMessageUpdate(
   }
 }
 
-export async function handleMessageEnd(
+export function handleMessageEnd(
   ctx: EmbeddedPiSubscribeContext,
   evt: AgentEvent & { message: AgentMessage },
-): Promise<void> {
+): void | Promise<void> {
   const msg = evt.message;
   if (msg?.role !== "assistant" || isTranscriptOnlyOpenClawAssistantMessage(msg)) {
     return;
@@ -650,87 +650,8 @@ export async function handleMessageEnd(
   const parsedText = trimmedText
     ? parseReplyDirectives(splitTrailingDirective(trimmedText, { final: true }).text)
     : null;
-  let cleanedText = parsedText?.text ?? "";
-  let { mediaUrls, hasMedia } = resolveSendableOutboundReplyParts(parsedText ?? {});
-
-  // Inline `llm_output` hook fire: when this is the first assistant message
-  // in this turn that contains user-facing text, fire the hook BEFORE
-  // emitting to the UI so block decisions can replace the text in-place and
-  // abort the upstream prompt() call. Only `outcome: "block"` (with optional
-  // `retry: true`) is enforceable here. ASK is no-op'd at the runner level.
-  const hasInlineUserVisibleText = Boolean(cleanedText.trim());
-  const inlineCtxParams = ctx.params.inlineLlmOutputContext;
-  if (
-    hasInlineUserVisibleText &&
-    !ctx.state.inlineLlmOutputFired &&
-    ctx.hookRunner &&
-    inlineCtxParams
-  ) {
-    try {
-      const sessionIdForHook = (ctx.params.session as { id?: string }).id ?? ctx.params.runId;
-      const decision = await ctx.hookRunner.runLlmOutput(
-        {
-          runId: ctx.params.runId,
-          sessionId: sessionIdForHook,
-          provider: inlineCtxParams.provider,
-          model: inlineCtxParams.modelId,
-          prompt: inlineCtxParams.userPromptText,
-          assistantTexts: [cleanedText],
-          lastAssistant: assistantMessage,
-        },
-        {
-          runId: ctx.params.runId,
-          agentId: inlineCtxParams.agentId,
-          sessionKey: inlineCtxParams.sessionKey,
-          sessionId: sessionIdForHook,
-          workspaceDir: inlineCtxParams.workspaceDir,
-          modelProviderId: inlineCtxParams.provider,
-          modelId: inlineCtxParams.modelId,
-          trigger: inlineCtxParams.trigger,
-          channelId: inlineCtxParams.channelId,
-        },
-      );
-      // Inline path handles ONLY terminal block decisions (block + !retry).
-      // - ASK is no longer enforceable; the runner logs and ignores it.
-      // - BLOCK + retry stays on the legacy path so the runner can re-ask
-      //   the model instead of aborting the turn.
-      const isTerminalBlock =
-        decision?.decision.outcome === "block" && decision.decision.retry !== true;
-      if (decision && isTerminalBlock) {
-        ctx.state.inlineLlmOutputFired = true;
-        const blockedOriginalText = cleanedText;
-        const blockDecision = decision.decision as { message?: string; reason?: string };
-        const rawReplacement =
-          blockDecision.message ?? blockDecision.reason ?? "Response withheld — blocked by policy.";
-        // Match the BLOCK_RUN styling so all hook-block replies render with
-        // the same affordance: warning glyph, "Agent failed" prefix, and the
-        // logs hint. Avoid double-prefixing if the plugin already used it.
-        const replacement = rawReplacement.startsWith("⚠️ Agent failed")
-          ? rawReplacement
-          : `⚠️ Agent failed before reply: ${rawReplacement.replace(/^🚫\s*/, "🚫 ").replace(/\.\s*$/, "")}.\nLogs: openclaw logs --follow`;
-        // Replace the visible text with the block message so the UI shows
-        // the policy notice in place of the model's reply.
-        cleanedText = replacement;
-        text = replacement;
-        mediaUrls = [];
-        hasMedia = false;
-        // Notify the runner so it can persist the replacement and abort
-        // the upstream prompt() call (ending the turn instantly).
-        try {
-          await ctx.params.onInlineLlmOutputBlock?.({
-            replacementMessage: replacement,
-            reason: blockDecision.reason ?? "blocked",
-            pluginId: decision.pluginId,
-            blockedAssistantText: blockedOriginalText,
-          });
-        } catch (err) {
-          ctx.log.debug(`onInlineLlmOutputBlock failed: ${String(err)}`);
-        }
-      }
-    } catch (err) {
-      ctx.log.debug(`inline llm_output hook failed: ${String(err)}`);
-    }
-  }
+  const cleanedText = parsedText?.text ?? "";
+  const { mediaUrls, hasMedia } = resolveSendableOutboundReplyParts(parsedText ?? {});
 
   const finalizeMessageEnd = () => {
     ctx.state.deltaBuffer = "";

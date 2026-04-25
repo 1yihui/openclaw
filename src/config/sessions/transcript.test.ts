@@ -5,6 +5,7 @@ import { resolveSessionTranscriptPathInDir } from "./paths.js";
 import { useTempSessionsFixture } from "./test-helpers.js";
 import {
   appendAssistantMessageToSessionTranscript,
+  appendBlockedUserMessageToSessionTranscript,
   appendExactAssistantMessageToSessionTranscript,
 } from "./transcript.js";
 
@@ -144,6 +145,43 @@ describe("appendAssistantMessageToSessionTranscript", () => {
     const messageLine = JSON.parse(lines[1]);
     expect(messageLine.message.idempotencyKey).toBe("mirror:test-source-message");
     expect(messageLine.message.content[0].text).toBe("Hello from delivery mirror!");
+  });
+
+  it("does not append a duplicate blocked user message for the same top-level idempotency key", async () => {
+    writeTranscriptStore();
+
+    const first = await appendBlockedUserMessageToSessionTranscript({
+      sessionKey,
+      originalText: "secret prompt",
+      redactedText: "Blocked by policy.",
+      pluginId: "policy-plugin",
+      reason: "contains protected content",
+      idempotencyKey: "hook-block:test-run",
+      storePath: fixture.storePath(),
+    });
+    const second = await appendBlockedUserMessageToSessionTranscript({
+      sessionKey,
+      originalText: "secret prompt",
+      redactedText: "Blocked by policy.",
+      pluginId: "policy-plugin",
+      reason: "contains protected content",
+      idempotencyKey: "hook-block:test-run",
+      storePath: fixture.storePath(),
+    });
+
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    if (first.ok && second.ok) {
+      expect(second.messageId).toBe(first.messageId);
+      const lines = fs.readFileSync(first.sessionFile, "utf-8").trim().split("\n");
+      expect(lines.length).toBe(2);
+
+      const messageLine = JSON.parse(lines[1]);
+      expect(messageLine.idempotencyKey).toBe("hook-block:test-run");
+      expect(messageLine.message.idempotencyKey).toBeUndefined();
+      expect(messageLine.message.content[0].text).toBe("Blocked by policy.");
+      expect(messageLine.originalBlockedContent.content[0].text).toBe("secret prompt");
+    }
   });
 
   it("does not append a duplicate delivery mirror when the latest assistant message already matches", async () => {

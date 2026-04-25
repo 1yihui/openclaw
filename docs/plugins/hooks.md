@@ -70,6 +70,7 @@ observation-only.
 
 - `llm_input` — observe provider input (system prompt, prompt, history)
 - `llm_output` — observe provider output
+- **`llm_message_end`** — inspect the first visible assistant message before the turn continues; may pass, block, retry, or ask for approval
 
 **Tools**
 
@@ -162,7 +163,7 @@ so your plugin does not depend on a legacy combined phase.
 `before_agent_start` and `agent_end` include `event.runId` when OpenClaw can
 identify the active run. The same value is also available on `ctx.runId`.
 
-Non-bundled plugins that need `llm_input`, `llm_output`, or `agent_end` must set:
+Non-bundled plugins that need `llm_input`, `llm_output`, `llm_message_end`, or `agent_end` must set:
 
 ```json
 {

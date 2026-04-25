@@ -274,26 +274,22 @@ describe("before_agent_run ask outcome", () => {
   });
 });
 
-describe("llm_output ask outcome", () => {
-  it("ignores ask when handler returns ask because llm_output cannot pause safely", async () => {
-    const logger = {
-      warn: vi.fn(),
-      error: vi.fn(),
-    };
+describe("llm output gates", () => {
+  it("keeps llm_output observer-only even when a handler returns a decision", async () => {
+    const handler = vi.fn(async () => ({
+      outcome: "block" as const,
+      reason: "observer return should not gate",
+      message: "[blocked]",
+    }));
     const registry = makeRegistry([
       {
         pluginId: "test",
         hookName: "llm_output",
-        handler: async () => ({
-          outcome: "ask" as const,
-          reason: "needs review",
-          title: "Output Review",
-          description: "This response needs approval.",
-        }),
+        handler,
         source: "test",
       },
     ]);
-    const runner = createHookRunner(registry, { logger });
+    const runner = createHookRunner(registry);
     const result = await runner.runLlmOutput(
       {
         runId: "r1",
@@ -305,17 +301,14 @@ describe("llm_output ask outcome", () => {
       ctx,
     );
     expect(result).toBeUndefined();
-    expect(logger.warn).toHaveBeenCalledWith(
-      "[hooks] llm_output handler from test returned ask, but llm_output cannot pause safely; ignoring",
-    );
+    expect(handler).toHaveBeenCalledOnce();
   });
 
-  it("ask does NOT short-circuit for llm_output and no-ops when no later block exists", async () => {
-    let secondHandlerCalled = false;
+  it("returns ask from llm_message_end so the runner can pause for approval", async () => {
     const registry = makeRegistry([
       {
         pluginId: "plugin-a",
-        hookName: "llm_output",
+        hookName: "llm_message_end",
         handler: async () => ({
           outcome: "ask" as const,
           reason: "check",
@@ -325,19 +318,9 @@ describe("llm_output ask outcome", () => {
         source: "test",
         priority: 10,
       },
-      {
-        pluginId: "plugin-b",
-        hookName: "llm_output",
-        handler: async () => {
-          secondHandlerCalled = true;
-          return { outcome: "pass" as const };
-        },
-        source: "test",
-        priority: 5,
-      },
     ]);
     const runner = createHookRunner(registry);
-    const result = await runner.runLlmOutput(
+    const result = await runner.runLlmMessageEnd(
       {
         runId: "r1",
         sessionId: "s1",
@@ -347,16 +330,15 @@ describe("llm_output ask outcome", () => {
       },
       ctx,
     );
-    expect(result?.decision.outcome).toBe("pass");
-    expect(result?.pluginId).toBe("plugin-b");
-    expect(secondHandlerCalled).toBe(true);
+    expect(result?.decision.outcome).toBe("ask");
+    expect(result?.pluginId).toBe("plugin-a");
   });
 
-  it("ask + block (with `message`) in sequence → block wins", async () => {
+  it("ask + block (with `message`) in sequence → block wins for llm_message_end", async () => {
     const registry = makeRegistry([
       {
         pluginId: "plugin-a",
-        hookName: "llm_output",
+        hookName: "llm_message_end",
         handler: async () => ({
           outcome: "ask" as const,
           reason: "needs review",
@@ -368,7 +350,7 @@ describe("llm_output ask outcome", () => {
       },
       {
         pluginId: "plugin-b",
-        hookName: "llm_output",
+        hookName: "llm_message_end",
         handler: async () => ({
           outcome: "block" as const,
           reason: "must replace",
@@ -379,7 +361,7 @@ describe("llm_output ask outcome", () => {
       },
     ]);
     const runner = createHookRunner(registry);
-    const result = await runner.runLlmOutput(
+    const result = await runner.runLlmMessageEnd(
       {
         runId: "r1",
         sessionId: "s1",
@@ -396,11 +378,11 @@ describe("llm_output ask outcome", () => {
     }
   });
 
-  it("returns block with retry: true from llm_output handler", async () => {
+  it("returns block with retry: true from llm_message_end handler", async () => {
     const registry = makeRegistry([
       {
         pluginId: "retry-plugin",
-        hookName: "llm_output",
+        hookName: "llm_message_end",
         handler: async () => ({
           outcome: "block" as const,
           reason: "needs another try",
@@ -412,7 +394,7 @@ describe("llm_output ask outcome", () => {
       },
     ]);
     const runner = createHookRunner(registry);
-    const result = await runner.runLlmOutput(
+    const result = await runner.runLlmMessageEnd(
       {
         runId: "r1",
         sessionId: "s1",

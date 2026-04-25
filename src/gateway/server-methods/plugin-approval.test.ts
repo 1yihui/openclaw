@@ -125,6 +125,44 @@ describe("createPluginApprovalHandlers", () => {
       );
     });
 
+    it("preserves explicit allowed decisions on plugin approval requests", async () => {
+      const handlers = createPluginApprovalHandlers(manager);
+      const respond = vi.fn();
+      const opts = createMockOptions(
+        "plugin.approval.request",
+        {
+          title: "Sensitive action",
+          description: "This tool modifies production data",
+          severity: "warning",
+          allowedDecisions: ["allow-once", "deny"],
+          twoPhase: true,
+        },
+        { respond },
+      );
+
+      const handlerPromise = handlers["plugin.approval.request"](opts);
+
+      await vi.waitFor(() => {
+        expect(opts.context.broadcast).toHaveBeenCalledWith(
+          "plugin.approval.requested",
+          expect.objectContaining({
+            request: expect.objectContaining({
+              allowedDecisions: ["allow-once", "deny"],
+            }),
+          }),
+          { dropIfSlow: true },
+        );
+      });
+
+      const acceptedCall = respond.mock.calls.find(
+        (c) => (c[1] as Record<string, unknown>)?.status === "accepted",
+      );
+      const approvalId = (acceptedCall?.[1] as Record<string, unknown>)?.id as string;
+      manager.resolve(approvalId, "allow-once");
+
+      await handlerPromise;
+    });
+
     it("expires immediately when no approval route", async () => {
       const handlers = createPluginApprovalHandlers(manager);
       const opts = createMockOptions(

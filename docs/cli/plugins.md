@@ -214,7 +214,7 @@ For runtime hook debugging:
   from a module-loaded inspection pass.
 - `openclaw gateway status --deep --require-rpc` confirms the reachable Gateway,
   service/process hints, config path, and RPC health.
-- Non-bundled conversation hooks (`llm_input`, `llm_output`, `agent_end`) require
+- Non-bundled conversation hooks (`llm_input`, `llm_output`, `llm_message_end`, `agent_end`) require
   `plugins.entries.<id>.hooks.allowConversationAccess=true`.
 
 Use `--link` to avoid copying a local directory (adds to `plugins.load.paths`):

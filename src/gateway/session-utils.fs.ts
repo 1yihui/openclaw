@@ -175,8 +175,7 @@ export function readSessionMessages(
         typeof (parsed as { originalBlockedContent?: unknown }).originalBlockedContent ===
           "object" &&
         !Array.isArray((parsed as { originalBlockedContent?: unknown }).originalBlockedContent)
-          ? ((parsed as { originalBlockedContent: Record<string, unknown> })
-              .originalBlockedContent as Record<string, unknown>)
+          ? (parsed as { originalBlockedContent: Record<string, unknown> }).originalBlockedContent
           : undefined;
       messages.push(
         attachOpenClawTranscriptMeta((parsed as { message: unknown }).message, {

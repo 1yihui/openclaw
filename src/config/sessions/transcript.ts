@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { CURRENT_SESSION_VERSION, SessionManager } from "@mariozechner/pi-coding-agent";
@@ -337,7 +338,7 @@ export async function appendBlockedUserMessageToSessionTranscript(params: {
   // SessionManager.appendMessage) to avoid the TOCTOU race where the
   // runner's own SessionManager re-reads the file and overwrites our
   // line. The JSONL format is stable: one JSON object per line.
-  const messageId = `blocked-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+  const messageId = `blocked-${crypto.randomUUID()}`;
   const nowMs = Date.now();
   const parentId = await readLatestTranscriptMessageId(sessionFile);
   const jsonlEntry: Record<string, unknown> = {

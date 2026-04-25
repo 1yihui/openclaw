@@ -1130,9 +1130,6 @@ export async function handleToolExecutionEnd(
     `embedded run tool end: runId=${ctx.params.runId} tool=${toolName} toolCallId=${toolCallId}`,
   );
 
-  // Always emit the tool result. after_tool_call is an observer-only event;
-  // tool-output gating is not supported (the SDK has already pushed the result
-  // into the in-memory message array by the time hooks fire).
   await emitToolResultOutput({
     ctx,
     toolName,
@@ -1143,11 +1140,9 @@ export async function handleToolExecutionEnd(
     sanitizedResult,
   });
 
-  // Fire async after_tool_call observers (non-blocking, telemetry/log only).
+  // Run after_tool_call plugin hook (fire-and-forget)
   const hookRunnerAfter = ctx.hookRunner ?? (await loadHookRunnerGlobal()).getGlobalHookRunner();
-  const hasAsyncHooks = hookRunnerAfter?.hasAsyncHooks("after_tool_call");
-
-  if (hasAsyncHooks) {
+  if (hookRunnerAfter?.hasHooks("after_tool_call")) {
     const { consumeAdjustedParamsForToolCall } = await loadBeforeToolCall();
     const adjustedArgs = consumeAdjustedParamsForToolCall(toolCallId, runId);
     const afterToolCallArgs =
@@ -1164,23 +1159,17 @@ export async function handleToolExecutionEnd(
       error: isToolError ? extractToolErrorMessage(sanitizedResult) : undefined,
       durationMs,
     };
-
-    hookRunnerAfter!.fireAsync(
-      "after_tool_call",
-      hookEvent,
-      {
+    void hookRunnerAfter
+      .runAfterToolCall(hookEvent, {
         toolName,
         agentId: ctx.params.agentId,
         sessionKey: ctx.params.sessionKey,
         sessionId: ctx.params.sessionId,
         runId,
         toolCallId,
-      },
-      (decision, pluginId) => {
-        ctx.log.warn(
-          `after_tool_call async observer from ${pluginId}: ${decision.outcome} — ${(decision as { reason?: string }).reason ?? "no reason"} (gating not supported; observer-only)`,
-        );
-      },
-    );
+      })
+      .catch((err) => {
+        ctx.log.warn(`after_tool_call hook failed: tool=${toolName} error=${String(err)}`);
+      });
   }
 }

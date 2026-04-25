@@ -29,6 +29,7 @@ export type RequestPluginApprovalParams = {
   title: string;
   description: string;
   severity?: "info" | "warning" | "critical";
+  allowedDecisions?: readonly PluginApprovalResolution[];
   timeoutMs?: number;
   toolName?: string;
   toolCallId?: string;
@@ -81,6 +82,7 @@ export async function requestHookApproval(params: HookApprovalParams): Promise<H
     title: params.decision.title,
     description: params.decision.description,
     severity: params.decision.severity ?? "warning",
+    allowedDecisions: [PluginApprovalResolutions.ALLOW_ONCE, PluginApprovalResolutions.DENY],
     timeoutMs: params.decision.timeoutMs,
     runId: params.runId,
     sessionKey: params.sessionKey,
@@ -112,11 +114,7 @@ export async function requestPluginApproval(
   }
 
   try {
-    const requestResult = await callGatewayTool<{
-      id?: string;
-      status?: string;
-      decision?: string | null;
-    }>(
+    const requestResult = await callGatewayTool(
       "plugin.approval.request",
       { timeoutMs: timeoutMs + 10_000, deviceIdentity: null },
       // Approval requests originate inside trusted agent/plugin runtime code.
@@ -128,6 +126,7 @@ export async function requestPluginApproval(
         title: params.title,
         description: params.description,
         severity: params.severity,
+        allowedDecisions: params.allowedDecisions,
         toolName: params.toolName,
         toolCallId: params.toolCallId,
         agentId: params.agentId,
@@ -138,7 +137,7 @@ export async function requestPluginApproval(
       { expectFinal: false },
     );
 
-    const id = requestResult?.id;
+    const id = readStringField(requestResult, "id");
     if (!id) {
       params.log?.warn?.(`plugin approval request failed (no id returned) for ${label}`);
       return { decision: PluginApprovalResolutions.CANCELLED, failure: "missing-id" };
@@ -152,22 +151,19 @@ export async function requestPluginApproval(
     let rawDecision: string | null | undefined;
 
     if (hasImmediateDecision) {
-      rawDecision = requestResult.decision;
+      rawDecision = readNullableStringField(requestResult, "decision");
       if (rawDecision === null) {
         params.log?.warn?.(`plugin approval unavailable (no approval route) for ${label}`);
         return { decision: PluginApprovalResolutions.CANCELLED, id, failure: "no-route" };
       }
     } else {
-      const waitPromise = callGatewayTool<{
-        id?: string;
-        decision?: string | null;
-      }>(
+      const waitPromise = callGatewayTool(
         "plugin.approval.waitDecision",
         { timeoutMs: timeoutMs + 10_000, deviceIdentity: null },
         { id },
       );
 
-      let waitResult: { id?: string; decision?: string | null } | undefined;
+      let waitResult: Record<string, unknown> | undefined;
 
       if (params.signal) {
         let onAbort: (() => void) | undefined;
@@ -190,7 +186,7 @@ export async function requestPluginApproval(
         waitResult = await waitPromise;
       }
 
-      rawDecision = waitResult?.decision;
+      rawDecision = waitResult ? readNullableStringField(waitResult, "decision") : undefined;
     }
 
     return { decision: normalizeDecision(rawDecision), id };
@@ -209,6 +205,22 @@ export async function requestPluginApproval(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+function readStringField(record: unknown, field: string): string | undefined {
+  if (!record || typeof record !== "object") {
+    return undefined;
+  }
+  const value = Reflect.get(record, field);
+  return typeof value === "string" ? value : undefined;
+}
+
+function readNullableStringField(record: unknown, field: string): string | null | undefined {
+  if (!record || typeof record !== "object") {
+    return undefined;
+  }
+  const value = Reflect.get(record, field);
+  return typeof value === "string" || value === null ? value : undefined;
+}
 
 function normalizeDecision(raw: string | null | undefined): PluginApprovalResolution {
   if (

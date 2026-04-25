@@ -6,7 +6,7 @@ import { toToolDefinitions } from "./pi-tool-definition-adapter.js";
 const hookMocks = vi.hoisted(() => ({
   runner: {
     hasHooks: vi.fn((_: string) => true),
-    runAfterToolCall: vi.fn(async () => {}),
+    runAfterToolCall: vi.fn(async (_event: unknown, _context: unknown) => {}),
   },
   isToolWrappedWithBeforeToolCallHook: vi.fn(() => false),
   consumeAdjustedParamsForToolCall: vi.fn((_: string) => undefined as unknown),
