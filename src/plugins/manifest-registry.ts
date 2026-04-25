@@ -9,6 +9,7 @@ import { normalizeOptionalTrimmedStringList } from "../shared/string-normalizati
 import { resolveUserPath } from "../utils.js";
 import { resolveCompatibilityHostVersion } from "../version.js";
 import { loadBundleManifest } from "./bundle-manifest.js";
+import { collectBundledChannelConfigs } from "./bundled-channel-config-metadata.js";
 import {
   normalizePluginsConfigWithResolver,
   type NormalizedPluginsConfig,
@@ -335,8 +336,16 @@ function buildRecord(params: {
   schemaCacheKey?: string;
   configSchema?: Record<string, unknown>;
 }): PluginManifestRecord {
+  const manifestChannelConfigs =
+    params.candidate.origin === "bundled"
+      ? collectBundledChannelConfigs({
+          pluginDir: params.candidate.packageDir ?? params.candidate.rootDir,
+          manifest: params.manifest,
+          packageManifest: params.candidate.packageManifest,
+        })
+      : params.manifest.channelConfigs;
   const channelConfigs = mergePackageChannelMetaIntoChannelConfigs({
-    channelConfigs: params.manifest.channelConfigs,
+    channelConfigs: manifestChannelConfigs,
     packageChannel: params.candidate.packageManifest?.channel,
   });
   return {
