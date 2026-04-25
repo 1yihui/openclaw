@@ -27,6 +27,7 @@ import {
   SessionSchema,
   SessionSendPolicySchema,
 } from "./zod-schema.session.js";
+import { SsrFProxyConfigSchema } from "./zod-schema.ssrf-proxy.js";
 
 const BrowserSnapshotDefaultsSchema = z
   .object({
@@ -1017,6 +1018,7 @@ export const OpenClawSchema = z
           .strict(),
       )
       .optional(),
+    ssrfProxy: SsrFProxyConfigSchema,
   })
   .strict()
   .superRefine((cfg, ctx) => {

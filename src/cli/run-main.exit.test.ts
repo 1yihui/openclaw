@@ -20,6 +20,13 @@ const getProgramContextMock = vi.hoisted(() => vi.fn(() => null));
 const registerCoreCliByNameMock = vi.hoisted(() => vi.fn());
 const registerSubCliByNameMock = vi.hoisted(() => vi.fn());
 const restoreTerminalStateMock = vi.hoisted(() => vi.fn());
+const loadConfigMock = vi.hoisted(() => vi.fn(() => ({})));
+const startSsrFProxyMock = vi.hoisted(() =>
+  vi.fn<(config: unknown) => Promise<unknown>>(async () => null),
+);
+const stopSsrFProxyMock = vi.hoisted(() =>
+  vi.fn<(handle: unknown) => Promise<void>>(async () => {}),
+);
 const maybeRunCliInContainerMock = vi.hoisted(() =>
   vi.fn<
     (argv: string[]) => { handled: true; exitCode: number } | { handled: false; argv: string[] }
@@ -96,11 +103,46 @@ vi.mock("../terminal/restore.js", () => ({
   restoreTerminalState: restoreTerminalStateMock,
 }));
 
+vi.mock("../config/io.js", () => ({
+  loadConfig: loadConfigMock,
+}));
+
+vi.mock("../infra/net/ssrf-proxy/proxy-lifecycle.js", () => ({
+  startSsrFProxy: startSsrFProxyMock,
+  stopSsrFProxy: stopSsrFProxyMock,
+}));
+
+function makeSsrFProxyHandle() {
+  return {
+    port: 19876,
+    proxyUrl: "http://127.0.0.1:19876",
+    pid: 1234,
+    injectedProxyUrl: "http://127.0.0.1:19876",
+    envSnapshot: {
+      http_proxy: undefined,
+      https_proxy: undefined,
+      HTTP_PROXY: undefined,
+      HTTPS_PROXY: undefined,
+      GLOBAL_AGENT_HTTP_PROXY: undefined,
+      GLOBAL_AGENT_HTTPS_PROXY: undefined,
+      GLOBAL_AGENT_FORCE_GLOBAL_AGENT: undefined,
+      no_proxy: undefined,
+      NO_PROXY: undefined,
+      GLOBAL_AGENT_NO_PROXY: undefined,
+    },
+    stop: vi.fn(async () => {}),
+    kill: vi.fn(),
+  };
+}
+
 describe("runCli exit behavior", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     hasMemoryRuntimeMock.mockReturnValue(false);
     outputPrecomputedBrowserHelpTextMock.mockReturnValue(false);
+    loadConfigMock.mockReturnValue({});
+    startSsrFProxyMock.mockResolvedValue(null);
+    stopSsrFProxyMock.mockResolvedValue(undefined);
     outputPrecomputedRootHelpTextMock.mockReturnValue(false);
     getProgramContextMock.mockReturnValue(null);
     delete process.env.OPENCLAW_DISABLE_CLI_STARTUP_HELP_FAST_PATH;
@@ -144,6 +186,105 @@ describe("runCli exit behavior", () => {
     expect(closeActiveMemorySearchManagersMock).not.toHaveBeenCalled();
     expect(exitSpy).not.toHaveBeenCalled();
     exitSpy.mockRestore();
+  });
+
+  it("does not start the SSRF proxy for local gateway client commands", async () => {
+    tryRouteCliMock.mockResolvedValueOnce(true);
+
+    await runCli(["node", "openclaw", "status"]);
+
+    expect(startSsrFProxyMock).not.toHaveBeenCalled();
+    expect(stopSsrFProxyMock).not.toHaveBeenCalled();
+  });
+
+  it("stops the SSRF proxy after normal gateway runtime completion", async () => {
+    const handle = makeSsrFProxyHandle();
+    startSsrFProxyMock.mockResolvedValueOnce(handle);
+    tryRouteCliMock.mockResolvedValueOnce(true);
+
+    await runCli(["node", "openclaw", "gateway", "run"]);
+
+    expect(startSsrFProxyMock).toHaveBeenCalledWith(undefined);
+    expect(stopSsrFProxyMock).toHaveBeenCalledOnce();
+    expect(stopSsrFProxyMock).toHaveBeenCalledWith(handle);
+  });
+
+  it("stops the SSRF proxy and exits after SIGINT", async () => {
+    const handle = makeSsrFProxyHandle();
+    startSsrFProxyMock.mockResolvedValueOnce(handle);
+
+    let resolveRoute: (value: boolean) => void = () => {};
+    tryRouteCliMock.mockReturnValueOnce(
+      new Promise<boolean>((resolve) => {
+        resolveRoute = resolve;
+      }),
+    );
+
+    const processOnceSpy = vi.spyOn(process, "once");
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(((code?: number | string) => {
+      void code;
+      return undefined as never;
+    }) as typeof process.exit);
+
+    try {
+      const runPromise = runCli(["node", "openclaw", "gateway", "run"]);
+      await vi.waitFor(() => {
+        expect(processOnceSpy).toHaveBeenCalledWith("SIGINT", expect.any(Function));
+      });
+
+      const sigintHandler = processOnceSpy.mock.calls.find(([event]) => event === "SIGINT")?.[1];
+      if (typeof sigintHandler !== "function") {
+        throw new Error("SIGINT handler was not registered");
+      }
+      sigintHandler();
+
+      await vi.waitFor(() => {
+        expect(stopSsrFProxyMock).toHaveBeenCalledWith(handle);
+      });
+      await vi.waitFor(() => {
+        expect(exitSpy).toHaveBeenCalledWith(130);
+      });
+
+      resolveRoute(true);
+      await runPromise;
+      expect(stopSsrFProxyMock).toHaveBeenCalledTimes(1);
+    } finally {
+      exitSpy.mockRestore();
+      processOnceSpy.mockRestore();
+    }
+  });
+
+  it("synchronously kills the SSRF proxy during hard process exit", async () => {
+    const handle = makeSsrFProxyHandle();
+    startSsrFProxyMock.mockResolvedValueOnce(handle);
+
+    let resolveRoute: (value: boolean) => void = () => {};
+    tryRouteCliMock.mockReturnValueOnce(
+      new Promise<boolean>((resolve) => {
+        resolveRoute = resolve;
+      }),
+    );
+
+    const processOnceSpy = vi.spyOn(process, "once");
+    try {
+      const runPromise = runCli(["node", "openclaw", "gateway", "run"]);
+      await vi.waitFor(() => {
+        expect(processOnceSpy.mock.calls.filter(([event]) => event === "exit")).toHaveLength(2);
+      });
+
+      const exitHandler = processOnceSpy.mock.calls.findLast(([event]) => event === "exit")?.[1];
+      if (typeof exitHandler !== "function") {
+        throw new Error("exit handler was not registered");
+      }
+      exitHandler(0 as never);
+
+      expect(handle.kill).toHaveBeenCalledWith("SIGTERM");
+      resolveRoute(true);
+      await runPromise;
+      expect(stopSsrFProxyMock).not.toHaveBeenCalledWith(handle);
+    } finally {
+      processOnceSpy.mockRestore();
+    }
   });
 
   it("renders root help without building the full program", async () => {

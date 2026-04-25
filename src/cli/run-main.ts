@@ -8,6 +8,8 @@ import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { normalizeEnv } from "../infra/env.js";
 import { formatUncaughtError } from "../infra/errors.js";
 import { isMainModule } from "../infra/is-main.js";
+import { startSsrFProxy, stopSsrFProxy } from "../infra/net/ssrf-proxy/proxy-lifecycle.js";
+import type { SsrFProxyHandle } from "../infra/net/ssrf-proxy/proxy-lifecycle.js";
 import { ensureGlobalUndiciEnvProxyDispatcher } from "../infra/net/undici-global-dispatcher.js";
 import { ensureOpenClawCliOnPath } from "../infra/path-env.js";
 import { assertSupportedRuntime } from "../infra/runtime-guard.js";
@@ -26,6 +28,7 @@ import {
   normalizeOptionalString,
 } from "../shared/string-coerce.js";
 import { resolveCliArgvInvocation } from "./argv-invocation.js";
+import { hasFlag } from "./argv.js";
 import {
   shouldRegisterPrimaryCommandOnly,
   shouldSkipPluginCommandRegistration,
@@ -99,6 +102,24 @@ export function shouldStartCrestodianForModernOnboard(argv: string[]): boolean {
     argv.includes("--modern") &&
     !invocation.hasHelpOrVersion
   );
+}
+
+export function shouldStartSsrFProxyForCli(argv: string[]): boolean {
+  const invocation = resolveCliArgvInvocation(argv);
+  const [primary, secondary] = invocation.commandPath;
+  if (invocation.hasHelpOrVersion || !primary) {
+    return false;
+  }
+  if (primary === "gateway") {
+    return secondary === undefined || secondary === "run";
+  }
+  if (primary === "node") {
+    return secondary === "run";
+  }
+  if (primary === "agent") {
+    return hasFlag(argv, "--local");
+  }
+  return false;
 }
 
 export function resolveMissingPluginCommandMessage(
@@ -222,6 +243,60 @@ export async function runCli(argv: string[] = process.argv) {
 
   // Enforce the minimum supported runtime before doing any work.
   assertSupportedRuntime();
+
+  // Activate external network-level SSRF proxy routing only for runtime commands.
+  // Short-lived Gateway client commands keep direct control-plane access to the
+  // local Gateway while the Gateway/node/embedded-agent runtime owns egress policy.
+  // If config can't be loaded or no proxy URL is configured, application-level
+  // guards remain active.
+  // The handle is captured so we can restore process proxy state on exit.
+  let ssrfProxyHandle: SsrFProxyHandle | null = null;
+  const stopStartedSsrFProxy = async () => {
+    const handle = ssrfProxyHandle;
+    ssrfProxyHandle = null;
+    if (handle) {
+      await stopSsrFProxy(handle);
+    }
+  };
+  const killStartedSsrFProxy = () => {
+    const handle = ssrfProxyHandle;
+    ssrfProxyHandle = null;
+    handle?.kill("SIGTERM");
+  };
+  try {
+    if (shouldStartSsrFProxyForCli(normalizedArgv)) {
+      const { loadConfig } = await import("../config/io.js");
+      const config = loadConfig();
+      ssrfProxyHandle = await startSsrFProxy(config?.ssrfProxy ?? undefined);
+    }
+  } catch {
+    // Config load may fail for many CLI commands that don't need it (e.g.
+    // help, version). Don't block startup — application-level guards remain.
+    ssrfProxyHandle = null;
+  }
+  // Graceful shutdown - restore proxy routing when openclaw exits via any signal.
+  let onSigterm: (() => void) | null = null;
+  let onSigint: (() => void) | null = null;
+  let onExit: (() => void) | null = null;
+  if (ssrfProxyHandle) {
+    const shutdown = (exitCode: number) => {
+      if (onSigterm) {
+        process.off("SIGTERM", onSigterm);
+      }
+      if (onSigint) {
+        process.off("SIGINT", onSigint);
+      }
+      void stopStartedSsrFProxy().finally(() => {
+        process.exit(exitCode);
+      });
+    };
+    onSigterm = () => shutdown(143);
+    onSigint = () => shutdown(130);
+    onExit = () => killStartedSsrFProxy();
+    process.once("SIGTERM", onSigterm);
+    process.once("SIGINT", onSigint);
+    process.once("exit", onExit);
+  }
 
   try {
     if (shouldUseRootHelpFastPath(normalizedArgv)) {
@@ -399,6 +474,16 @@ export async function runCli(argv: string[] = process.argv) {
       stopStartupProgress();
     }
   } finally {
+    if (onSigterm) {
+      process.off("SIGTERM", onSigterm);
+    }
+    if (onSigint) {
+      process.off("SIGINT", onSigint);
+    }
+    if (onExit) {
+      process.off("exit", onExit);
+    }
+    await stopStartedSsrFProxy();
     await closeCliMemoryManagers();
   }
 }

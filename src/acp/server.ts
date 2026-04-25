@@ -234,6 +234,10 @@ Options:
 `);
 }
 
+export async function runStandaloneAcpServer(opts: AcpServerOptions = {}): Promise<void> {
+  await serveAcpGateway(opts);
+}
+
 if (isMainModule({ currentFile: fileURLToPath(import.meta.url) })) {
   const argv = process.argv.slice(2);
   if (argv.includes("--token") || argv.includes("--gateway-token")) {
@@ -247,7 +251,7 @@ if (isMainModule({ currentFile: fileURLToPath(import.meta.url) })) {
     );
   }
   const opts = parseArgs(argv);
-  serveAcpGateway(opts).catch((err) => {
+  runStandaloneAcpServer(opts).catch((err) => {
     console.error(String(err));
     process.exit(1);
   });
