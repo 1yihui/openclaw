@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { sensitive } from "./zod-schema.sensitive.js";
 
 function isHttpProxyUrl(value: string): boolean {
   try {
@@ -18,6 +19,7 @@ export const ProxyConfigSchema = z
       .refine(isHttpProxyUrl, {
         message: "proxyUrl must use http://",
       })
+      .register(sensitive)
       .optional(),
   })
   .strict()

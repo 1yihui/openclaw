@@ -28508,6 +28508,10 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
       sensitive: true,
       tags: ["security", "auth"],
     },
+    "proxy.proxyUrl": {
+      sensitive: true,
+      tags: ["security"],
+    },
     "models.providers.*.models[].baseUrl": {
       tags: ["models", "url-secret"],
     },
