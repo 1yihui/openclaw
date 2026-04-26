@@ -178,7 +178,6 @@ describe("Codex Computer Use setup", () => {
           computerUse: {
             enabled: true,
             autoInstall: true,
-            marketplaceSource: "github:example/desktop-tools",
           },
         },
         request,
@@ -192,13 +191,53 @@ describe("Codex Computer Use setup", () => {
     expect(request).toHaveBeenCalledWith("experimentalFeature/enablement/set", {
       enablement: { plugins: true },
     });
-    expect(request).toHaveBeenCalledWith("marketplace/add", {
-      source: "github:example/desktop-tools",
-    });
+    expect(request).not.toHaveBeenCalledWith("marketplace/add", expect.anything());
     expect(request).toHaveBeenCalledWith("plugin/install", {
       marketplacePath: "/marketplaces/desktop-tools/.agents/plugins/marketplace.json",
       pluginName: "computer-use",
     });
+  });
+
+  it("requires an explicit install command for configured marketplace sources", async () => {
+    const request = createComputerUseRequest({ installed: false });
+
+    await expect(
+      ensureCodexComputerUse({
+        pluginConfig: {
+          computerUse: {
+            enabled: true,
+            autoInstall: true,
+            marketplaceSource: "github:example/desktop-tools",
+          },
+        },
+        request,
+      }),
+    ).rejects.toThrow(CodexComputerUseSetupError);
+    expect(request).not.toHaveBeenCalledWith("marketplace/add", expect.anything());
+    expect(request).not.toHaveBeenCalledWith("plugin/install", expect.anything());
+  });
+
+  it("fails closed when a configured marketplace name is not discovered", async () => {
+    const request = createEmptyMarketplaceComputerUseRequest();
+
+    await expect(
+      readCodexComputerUseStatus({
+        pluginConfig: {
+          computerUse: {
+            enabled: true,
+            marketplaceName: "missing-marketplace",
+          },
+        },
+        request,
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        ready: false,
+        message:
+          "Configured Codex marketplace missing-marketplace was not found or does not contain computer-use. Run /codex computer-use install with a source or path to install from a new marketplace.",
+      }),
+    );
+    expect(request).not.toHaveBeenCalledWith("plugin/read", expect.anything());
   });
 
   it("waits for the default Codex marketplace during install", async () => {
@@ -354,6 +393,19 @@ function createAmbiguousComputerUseRequest(): CodexComputerUseRequest {
             plugins: [pluginSummary(true, "other-tools")],
           },
         ],
+        marketplaceLoadErrors: [],
+        featuredPluginIds: [],
+      };
+    }
+    throw new Error(`unexpected request ${method}`);
+  }) as CodexComputerUseRequest;
+}
+
+function createEmptyMarketplaceComputerUseRequest(): CodexComputerUseRequest {
+  return vi.fn(async (method: string) => {
+    if (method === "plugin/list") {
+      return {
+        marketplaces: [],
         marketplaceLoadErrors: [],
         featuredPluginIds: [],
       };

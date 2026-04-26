@@ -592,6 +592,9 @@ app-server can add, or `marketplacePath` for a local marketplace file that
 already exists on the machine. If the marketplace is already registered with
 Codex app-server, use `marketplaceName` instead. The defaults are
 `pluginName: "computer-use"` and `mcpServerName: "computer-use"`.
+For safety, turn-start auto-install only uses marketplaces app-server has
+already discovered. Use `/codex computer-use install` for explicit installs from
+a configured `marketplaceSource` or `marketplacePath`.
 
 The same setup can be checked or installed from the command surface:
 

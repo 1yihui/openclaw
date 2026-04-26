@@ -97,6 +97,10 @@ export async function ensureCodexComputerUse(
     return status;
   }
   if (config.autoInstall) {
+    const blockedAutoInstallStatus = blockUnsafeAutoInstallStatus(config);
+    if (blockedAutoInstallStatus) {
+      throw new CodexComputerUseSetupError(blockedAutoInstallStatus);
+    }
     const installedStatus = await inspectCodexComputerUse({
       ...params,
       config,
@@ -262,10 +266,7 @@ async function resolveMarketplaceRef(params: {
       return { marketplace: preferred };
     }
     return {
-      marketplace: {
-        name: preferredMarketplaceName,
-        remoteMarketplaceName: preferredMarketplaceName,
-      },
+      message: `Configured Codex marketplace ${preferredMarketplaceName} was not found or does not contain ${params.config.pluginName}. Run /codex computer-use install with a source or path to install from a new marketplace.`,
     };
   }
   if (candidates.length > 1) {
@@ -285,6 +286,18 @@ async function resolveMarketplaceRef(params: {
   }
   const marketplace = candidates[0];
   return marketplace ? { marketplace } : {};
+}
+
+function blockUnsafeAutoInstallStatus(
+  config: ResolvedCodexComputerUseConfig,
+): CodexComputerUseStatus | undefined {
+  if (!config.marketplaceSource && !config.marketplacePath) {
+    return undefined;
+  }
+  return unavailableStatus(
+    config,
+    "Computer Use auto-install only uses marketplaces Codex app-server has already discovered. Run /codex computer-use install to install from a configured marketplace source or path.",
+  );
 }
 
 function findComputerUseMarketplaces(
