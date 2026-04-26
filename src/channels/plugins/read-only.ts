@@ -31,7 +31,7 @@ type PluginLoaderModule = {
     config: OpenClawConfig;
     activationSourceConfig?: OpenClawConfig;
     env?: NodeJS.ProcessEnv;
-    workspaceDir: string;
+    workspaceDir?: string;
     cache?: boolean;
     activate?: boolean;
     includeSetupOnlyChannelPlugins?: boolean;
