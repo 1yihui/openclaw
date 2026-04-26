@@ -608,6 +608,63 @@ describe("readSessionMessages", () => {
     ]);
   });
 
+  test("keeps compaction markers when reading only the active SessionManager branch", () => {
+    const sessionId = "branched-session-with-compaction";
+    const sessionFile = path.join(tmpDir, `${sessionId}.jsonl`);
+    const lines = [
+      {
+        type: "session",
+        version: 1,
+        id: sessionId,
+      },
+      {
+        type: "message",
+        id: "user-old",
+        parentId: null,
+        message: { role: "user", content: "old prompt", timestamp: 1 },
+      },
+      {
+        type: "message",
+        id: "assistant-old",
+        parentId: "user-old",
+        message: { role: "assistant", content: "old answer", timestamp: 2 },
+      },
+      {
+        type: "compaction",
+        id: "comp-1",
+        timestamp: "2026-02-07T00:00:00.000Z",
+        summary: "Compacted history",
+      },
+      {
+        type: "message",
+        id: "user-active",
+        parentId: null,
+        message: { role: "user", content: "active prompt", timestamp: 3 },
+      },
+      {
+        type: "message",
+        id: "assistant-active",
+        parentId: "user-active",
+        message: { role: "assistant", content: "active answer", timestamp: 4 },
+      },
+    ];
+    fs.writeFileSync(sessionFile, lines.map((line) => JSON.stringify(line)).join("\n"), "utf-8");
+
+    const out = readSessionMessages(sessionId, storePath, sessionFile);
+
+    expect(
+      out.map((message) => ({
+        role: (message as { role?: string }).role,
+        content: (message as { content?: unknown }).content,
+        kind: (message as { __openclaw?: { kind?: string } }).__openclaw?.kind,
+      })),
+    ).toEqual([
+      { role: "system", content: [{ type: "text", text: "Compaction" }], kind: "compaction" },
+      { role: "user", content: "active prompt", kind: undefined },
+      { role: "assistant", content: "active answer", kind: undefined },
+    ]);
+  });
+
   test("keeps blocked hook messages on the current active branch", async () => {
     const sessionId = "blocked-hook-branch-session";
     const sessionKey = "agent:main:explicit:blocked-hook-branch";

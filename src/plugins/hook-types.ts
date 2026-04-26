@@ -20,7 +20,7 @@ import type {
   PluginHookBeforePromptBuildEvent,
   PluginHookBeforePromptBuildResult,
 } from "./hook-before-agent-start.types.js";
-import type { HookDecision, InputGateDecision, HookController } from "./hook-decision-types.js";
+import type { HookDecision, InputGateDecision } from "./hook-decision-types.js";
 import type {
   PluginHookInboundClaimContext,
   PluginHookInboundClaimEvent,
@@ -683,12 +683,6 @@ export type PluginHookBeforeAgentRunEvent = {
   senderId?: string;
   /** Whether the sender is an owner. */
   senderIsOwner?: boolean;
-  /** Any media attachments (images, audio, files). */
-  attachments?: Array<{
-    type: string;
-    mimeType?: string;
-    ref?: string;
-  }>;
 };
 
 /** Result type for before_agent_run. Returns HookDecision or void (= pass). */
@@ -722,7 +716,6 @@ export type PluginHookHandlerMap = {
   llm_message_end: (
     event: PluginHookLlmMessageEndEvent,
     ctx: PluginHookAgentContext,
-    controller?: HookController,
   ) => Promise<HookDecision | void> | HookDecision | void;
   agent_end: (event: PluginHookAgentEndEvent, ctx: PluginHookAgentContext) => Promise<void> | void;
   before_compaction: (
@@ -768,8 +761,7 @@ export type PluginHookHandlerMap = {
   after_tool_call: (
     event: PluginHookAfterToolCallEvent,
     ctx: PluginHookToolContext,
-    controller?: HookController,
-  ) => Promise<HookDecision | void> | HookDecision | void;
+  ) => Promise<void> | void;
   tool_result_persist: (
     event: PluginHookToolResultPersistEvent,
     ctx: PluginHookToolResultPersistContext,
@@ -820,7 +812,6 @@ export type PluginHookHandlerMap = {
   before_agent_run: (
     event: PluginHookBeforeAgentRunEvent,
     ctx: PluginHookAgentContext,
-    controller?: HookController,
   ) => Promise<PluginHookBeforeAgentRunResult> | PluginHookBeforeAgentRunResult;
 };
 
@@ -830,6 +821,4 @@ export type PluginHookRegistration<K extends PluginHookName = PluginHookName> = 
   handler: PluginHookHandlerMap[K];
   priority?: number;
   source: string;
-  mode?: "sync" | "async";
-  timeoutMs?: number;
 };

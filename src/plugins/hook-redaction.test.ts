@@ -227,11 +227,7 @@ describe("redactMessages", () => {
     });
   });
 
-  // Regression suite: real session-file shape used by the embedded runner.
-  // Entries are wrapped as { type: "message", message: { role, content: [{type:"text",text}] } }.
-  // Before the fix, the `match` filter only inspected top-level role/content,
-  // never matched these entries, and `redactMessages` returned 0.
-  describe("real session-file shape (regression)", () => {
+  describe("real session-file shape", () => {
     function runnerMessage(role: "user" | "assistant" | "tool", text: string) {
       return {
         type: "message",
@@ -304,9 +300,6 @@ describe("redactMessages", () => {
     });
 
     it("still matches the legacy flat shape used by the existing tests", async () => {
-      // Backwards-compat: flat { role, content: <string> } entries must still
-      // match so older tests and any externally-produced transcripts keep
-      // working.
       await writeTranscript([
         { role: "user", content: "hello" },
         { role: "assistant", content: "bad stuff" },

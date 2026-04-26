@@ -501,6 +501,35 @@ describe("createPluginApprovalHandlers", () => {
       );
     });
 
+    it("rejects decisions excluded by plugin approval allowedDecisions", async () => {
+      const handlers = createPluginApprovalHandlers(manager);
+      const record = manager.create(
+        { title: "T", description: "D", allowedDecisions: ["allow-once", "deny"] },
+        60_000,
+      );
+      void manager.register(record, 60_000);
+
+      const opts = createMockOptions("plugin.approval.resolve", {
+        id: record.id,
+        decision: "allow-always",
+      });
+      await handlers["plugin.approval.resolve"](opts);
+
+      expect(opts.respond).toHaveBeenCalledWith(
+        false,
+        undefined,
+        expect.objectContaining({
+          code: "INVALID_REQUEST",
+          message: "decision is not allowed for this plugin approval request",
+        }),
+      );
+      expect(opts.context.broadcast).not.toHaveBeenCalledWith(
+        "plugin.approval.resolved",
+        expect.anything(),
+        expect.anything(),
+      );
+    });
+
     it("rejects unknown approval id", async () => {
       const handlers = createPluginApprovalHandlers(manager);
       const opts = createMockOptions("plugin.approval.resolve", {

@@ -136,11 +136,7 @@ export function startGatewayMaintenanceTimers(params: {
       params.chatDeltaLastBroadcastLen.delete(runId);
     }
 
-    // Sweep stale `hookFinalizedRuns` markers in case the chat.send
-    // `.then()`/`.catch()` callbacks never ran (e.g. process crash before
-    // consume). The marker is normally consumed within the same tick that
-    // it was set, so any entry older than the abort TTL is definitely
-    // orphaned.
+    // Clean up hook-block markers that were never consumed by chat.send.
     for (const [runId, finalizedAt] of params.chatRunState.hookFinalizedRuns) {
       if (now - finalizedAt <= ABORTED_RUN_TTL_MS) {
         continue;

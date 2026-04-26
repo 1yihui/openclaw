@@ -2,7 +2,7 @@
  * Plugin Hook Runner
  *
  * Provides utilities for executing plugin lifecycle hooks with proper
- * error handling, priority ordering, and async support.
+ * error handling and priority ordering.
  */
 
 import { formatHookErrorForLog } from "../hooks/fire-and-forget.js";
@@ -10,7 +10,6 @@ import { formatErrorMessage } from "../infra/errors.js";
 import { concatOptionalTextSegments } from "../shared/text/join-segments.js";
 import {
   type HookDecision,
-  type HookController,
   type GateHookResult,
   type MessageEndGateDecision,
   isHookDecision,
@@ -76,7 +75,6 @@ import type {
   PluginHookBeforeInstallContext,
   PluginHookBeforeInstallEvent,
   PluginHookBeforeInstallResult,
-  PluginHookHandlerMap,
 } from "./hook-types.js";
 
 // Re-export types for consumers
@@ -201,7 +199,7 @@ function getHooksForName<K extends PluginHookName>(
   hookName: K,
 ): PluginHookRegistration<K>[] {
   return (registry.typedHooks as PluginHookRegistration<K>[])
-    .filter((h) => h.hookName === hookName && h.mode !== "async")
+    .filter((h) => h.hookName === hookName)
     .toSorted((a, b) => (b.priority ?? 0) - (a.priority ?? 0));
 }
 
@@ -646,7 +644,7 @@ export function createHookRunner(
       {
         mergeResults: (_acc, next, reg): HookDecision | undefined => {
           if (!isHookDecision(next)) {
-            return _acc ?? next;
+            return _acc;
           }
           const merged = mergeHookDecisions(_acc, next);
           if (merged === next) {
@@ -826,8 +824,6 @@ export function createHookRunner(
   }
 
   // =========================================================================
-
-  // =========================================================================
   // Lifecycle Gate Hooks
   // =========================================================================
 
@@ -842,14 +838,14 @@ export function createHookRunner(
     ctx: PluginHookAgentContext,
   ): Promise<GateHookResult | undefined> {
     let winningPluginId: string | undefined;
-    const decision = await runModifyingHook<"before_agent_run", HookDecision>(
+    const decision = await runModifyingHook<"before_agent_run", HookDecision | undefined>(
       "before_agent_run",
       event,
       ctx,
       {
         mergeResults: (_acc, next, reg) => {
           if (!isHookDecision(next)) {
-            return _acc ?? next;
+            return _acc;
           }
           const merged = mergeHookDecisions(_acc, next);
           if (merged === next) {
@@ -858,7 +854,7 @@ export function createHookRunner(
           return merged;
         },
         // ask does NOT short-circuit — keep running so other plugins can escalate to block
-        shouldStop: (result) => result.outcome === "block",
+        shouldStop: (result) => result?.outcome === "block",
         terminalLabel: "gate-decision",
       },
     );
@@ -1193,15 +1189,8 @@ export function createHookRunner(
   // Utility
   // =========================================================================
 
-  /**
-   * Check if any hooks are registered for a given hook name.
-   */
   function hasHooks(hookName: PluginHookName): boolean {
-    return registry.typedHooks.some((h) => h.hookName === hookName && h.mode !== "async");
-  }
-
-  function hasAsyncHooks(hookName: PluginHookName): boolean {
-    return registry.typedHooks.some((h) => h.hookName === hookName && h.mode === "async");
+    return registry.typedHooks.some((h) => h.hookName === hookName);
   }
 
   /**
@@ -1209,74 +1198,6 @@ export function createHookRunner(
    */
   function getHookCount(hookName: PluginHookName): number {
     return registry.typedHooks.filter((h) => h.hookName === hookName).length;
-  }
-
-  // =========================================================================
-  // Async Hook Handlers
-  // =========================================================================
-
-  /**
-   * Fire async handlers for a hook point. Returns immediately.
-   * Each handler receives a HookController for retroactive intervention.
-   * All handlers run simultaneously (no priority ordering).
-   *
-   * @param interventionCallback - called when any async handler calls intervene()
-   * @returns cleanup function to abort all pending async handlers
-   */
-  function fireAsyncHandlers<K extends PluginHookName>(
-    hookName: K,
-    event: Parameters<PluginHookHandlerMap[K]>[0],
-    ctx: Parameters<PluginHookHandlerMap[K]>[1],
-    interventionCallback: (decision: HookDecision, pluginId: string) => void,
-  ): () => void {
-    const handlers = registry.typedHooks.filter(
-      (h) => h.hookName === hookName && h.mode === "async",
-    );
-
-    if (handlers.length === 0) {
-      return () => {}; // no-op cleanup
-    }
-
-    const abortController = new AbortController();
-    let currentDecision: HookDecision | undefined;
-
-    for (const handler of handlers) {
-      const timeoutMs = handler.timeoutMs ?? 30_000;
-      const handlerAbort = new AbortController();
-
-      // Link to parent abort
-      abortController.signal.addEventListener("abort", () => handlerAbort.abort());
-
-      const controller: HookController = {
-        signal: handlerAbort.signal,
-        intervene(decision: HookDecision) {
-          if (handlerAbort.signal.aborted) {
-            return; // intervention window closed
-          }
-          const merged = currentDecision ? mergeHookDecisions(currentDecision, decision) : decision;
-          if (merged !== currentDecision) {
-            currentDecision = merged;
-            interventionCallback(merged, handler.pluginId);
-          }
-        },
-      };
-
-      // Fire and forget — but with timeout
-      const run = async () => {
-        try {
-          await (handler.handler as Function)(event, ctx, controller);
-        } catch (err) {
-          logger?.warn?.(
-            `[hooks] async ${hookName} handler from ${handler.pluginId} failed: ${String(err)}`,
-          );
-        }
-      };
-
-      const timer = setTimeout(() => handlerAbort.abort(), timeoutMs);
-      void run().finally(() => clearTimeout(timer));
-    }
-
-    return () => abortController.abort();
   }
 
   return {
@@ -1294,7 +1215,6 @@ export function createHookRunner(
     runBeforeReset,
     // Lifecycle gate hooks
     runBeforeAgentRun,
-    fireAsync: fireAsyncHandlers,
     // Message hooks
     runInboundClaim,
     runInboundClaimForPlugin,
@@ -1324,7 +1244,6 @@ export function createHookRunner(
     runBeforeInstall,
     // Utility
     hasHooks,
-    hasAsyncHooks,
     getHookCount,
   };
 }

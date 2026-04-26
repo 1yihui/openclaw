@@ -1,19 +1,4 @@
 /**
- * Hook Decision Types
- *
- * Structured decision contract for gate/policy hooks.
- * Core is outcome-agnostic — it handles the mechanics of each outcome
- * without knowing *why* the decision was made.
- *
- * Any plugin can return a HookDecision from any gate hook for any purpose:
- * moderation, PII scrubbing, cost gates, compliance, etc.
- */
-
-// ---------------------------------------------------------------------------
-// HookDecision — the core discriminated union
-// ---------------------------------------------------------------------------
-
-/**
  * Structured decision returned by gate/policy hooks.
  * Core is outcome-agnostic — it handles the mechanics of each outcome
  * without knowing *why* the decision was made.
@@ -32,35 +17,15 @@ export const DEFAULT_BLOCK_MESSAGE = "This response was blocked by policy";
 export const DEFAULT_BLOCK_MAX_RETRIES = 3;
 
 /**
- * Content is blocked. Core handles the mechanics:
- *  - For `llm_message_end`: replace the assistant response text with `message`
- *    (or the default message) and end the turn normally — NOT an error.
- *    If `retry` is true, the LLM is asked to try again until `maxRetries`
- *    is exhausted, after which the turn ends with the block message.
- *  - For `before_agent_run`: terminate the run before submitting the prompt
- *    and surface `message` to the user. `retry` is not meaningful here
- *    (the prompt has not changed) and is ignored.
- *  - For `after_tool_call`: log + surface `message` (when wired) so the
- *    blocked tool result is replaced with the policy text.
- *
- * `reason` is internal (logged, not shown). `message` is user-facing.
+ * Content is blocked. `reason` is internal; `message` is user-facing.
+ * `retry` is only meaningful for `llm_message_end`.
  */
 export type HookDecisionBlock = {
   outcome: "block";
   /** Internal reason for logging/observability. Never shown to user. */
   reason: string;
-  /**
-   * Optional user-facing replacement text. Defaults to
-   * `DEFAULT_BLOCK_MESSAGE` when not provided.
-   * Preferred over the deprecated `userMessage` field.
-   */
+  /** Optional user-facing replacement text. Defaults to `DEFAULT_BLOCK_MESSAGE`. */
   message?: string;
-  /**
-   * @deprecated Prefer `message`. Retained for backwards compatibility with
-   * pre-merge callers; readers must fall back to `message` when both are
-   * absent.
-   */
-  userMessage?: string;
   /**
    * If true, retry the LLM call (same model, same prompt) instead of
    * terminating the turn. Only meaningful for `llm_message_end`. Default: false.
@@ -73,7 +38,7 @@ export type HookDecisionBlock = {
   maxRetries?: number;
   /** Plugin-defined category for analytics (e.g. "violence", "pii", "cost_limit"). */
   category?: string;
-  /** Opaque metadata for the plugin's own use. Core persists but doesn't interpret. */
+  /** Opaque metadata for the plugin's own use. Core does not interpret it. */
   metadata?: Record<string, unknown>;
 };
 
@@ -96,25 +61,17 @@ export type HookDecisionAsk = {
   timeoutMs?: number;
   /** What happens on timeout. Default: "deny". */
   timeoutBehavior?: "allow" | "deny";
-  /** Message shown to the user if denied. Only meaningful for output gates. */
+  /** Message shown to the user if denied. */
   denialMessage?: string;
   /** Plugin-defined category for analytics. */
   category?: string;
-  /** Opaque metadata for the plugin's own use. Core persists but doesn't interpret. */
+  /** Opaque metadata for the plugin's own use. Core does not interpret it. */
   metadata?: Record<string, unknown>;
 };
 
-/**
- * Resolve the user-facing message for a block decision, honoring the
- * deprecated `userMessage` field as a fallback before defaulting.
- */
 export function resolveBlockMessage(decision: HookDecisionBlock): string {
-  return decision.message ?? decision.userMessage ?? DEFAULT_BLOCK_MESSAGE;
+  return decision.message ?? DEFAULT_BLOCK_MESSAGE;
 }
-
-// ---------------------------------------------------------------------------
-// Decision outcome priority for merging (most-restrictive-wins)
-// ---------------------------------------------------------------------------
 
 /** Outcome severity for most-restrictive-wins merging. Higher = more restrictive. */
 export const HOOK_DECISION_SEVERITY: Record<HookDecision["outcome"], number> = {
@@ -145,15 +102,8 @@ export function isHookDecision(value: unknown): value is HookDecision {
   return v.outcome === "pass" || v.outcome === "block" || v.outcome === "ask";
 }
 
-// ---------------------------------------------------------------------------
-// Phase-restricted decision types
-// ---------------------------------------------------------------------------
-
 /** Outcomes valid for input gates (before_agent_run). */
 export type InputGateDecision = HookDecisionPass | HookDecisionBlock | HookDecisionAsk;
-
-/** Outcomes valid for output gates (llm_message_end, after_tool_call). */
-export type OutputGateDecision = HookDecisionPass | HookDecisionBlock;
 
 /** Outcomes valid for message-end gates. */
 export type MessageEndGateDecision = HookDecisionPass | HookDecisionBlock | HookDecisionAsk;
@@ -167,55 +117,6 @@ export type GateHookResult<TDecision extends HookDecision = HookDecision> = {
   decision: TDecision;
   pluginId: string;
 };
-
-// ---------------------------------------------------------------------------
-// Hook Decision Event (observability)
-// ---------------------------------------------------------------------------
-
-/**
- * Core-emitted event whenever a gate hook returns a non-pass HookDecision.
- * Not moderation-specific — fires for any plugin, for any reason.
- */
-export type HookDecisionEvent = {
-  timestamp: number;
-  hookPoint: string;
-  pluginId: string;
-  decision: HookDecision;
-  sessionKey: string;
-  sessionId?: string;
-  runId?: string;
-  channelId?: string;
-  senderId?: string;
-  /** Duration of the hook handler execution. */
-  hookDurationMs: number;
-  /** Whether channel retraction was attempted and succeeded. */
-  channelRetractionResult?: "success" | "fallback" | "not_attempted";
-};
-
-// ---------------------------------------------------------------------------
-// HookController — async intervention handle
-// ---------------------------------------------------------------------------
-
-/**
- * Controller for async (non-blocking) hook handlers.
- * Allows retroactive intervention in the running pipeline.
- *
- * intervene() ALWAYS performs all steps (no branching on pipeline state):
- * 1. Abort the stream (if running) or prevent start
- * 2. Redact any persisted content from the session transcript
- * 3. Best-effort channel retraction (delete/edit delivered messages)
- * 4. Surface replacement message to the user
- */
-export type HookController = {
-  /** Aborted when the intervention window closes (timeout or pipeline cleanup). */
-  signal: AbortSignal;
-  /** Intervene in the running pipeline. Always stops + replaces persisted content. */
-  intervene(decision: HookDecision): void;
-};
-
-// ---------------------------------------------------------------------------
-// Redaction audit entry
-// ---------------------------------------------------------------------------
 
 /**
  * Entry written to the per-session redaction audit log.

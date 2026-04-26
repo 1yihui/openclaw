@@ -7,10 +7,8 @@ import { createBaseToolHandlerState } from "../agents/pi-tool-handler-state.test
 const hookMocks = vi.hoisted(() => ({
   runner: {
     hasHooks: vi.fn(() => false),
-    hasAsyncHooks: vi.fn(() => false),
-    fireAsync: vi.fn(() => () => {}),
     runBeforeToolCall: vi.fn(async () => {}),
-    runAfterToolCall: vi.fn(async (_event: unknown, _context: unknown) => {}),
+    runAfterToolCall: vi.fn(async () => {}),
   },
 }));
 
@@ -56,9 +54,8 @@ function createToolHandlerCtx(params: {
 }
 
 function getAfterToolCallCall(index = 0) {
-  const call = hookMocks.runner.runAfterToolCall.mock.calls[index];
+  const call = (hookMocks.runner.runAfterToolCall as ReturnType<typeof vi.fn>).mock.calls[index];
   return {
-    hookName: call ? "after_tool_call" : undefined,
     event: call?.[0] as
       | {
           toolName?: string;
@@ -87,8 +84,7 @@ function expectAfterToolCallPayload(params: {
   expectedEvent: Record<string, unknown>;
   expectedContext: Record<string, unknown>;
 }) {
-  const { hookName, event, context } = getAfterToolCallCall(params.index);
-  expect(hookName).toBe("after_tool_call");
+  const { event, context } = getAfterToolCallCall(params.index);
   expect(event).toBeDefined();
   expect(context).toBeDefined();
   if (!event || !context) {
@@ -110,17 +106,13 @@ describe("after_tool_call hook wiring", () => {
   beforeEach(() => {
     hookMocks.runner.hasHooks.mockClear();
     hookMocks.runner.hasHooks.mockReturnValue(false);
-    hookMocks.runner.hasAsyncHooks.mockClear();
-    hookMocks.runner.hasAsyncHooks.mockReturnValue(false);
-    hookMocks.runner.fireAsync.mockClear();
-    hookMocks.runner.fireAsync.mockReturnValue(() => {});
     hookMocks.runner.runBeforeToolCall.mockClear();
     hookMocks.runner.runBeforeToolCall.mockResolvedValue(undefined);
     hookMocks.runner.runAfterToolCall.mockClear();
     hookMocks.runner.runAfterToolCall.mockResolvedValue(undefined);
   });
 
-  it("fires after_tool_call in handleToolExecutionEnd when hook is registered", async () => {
+  it("calls runAfterToolCall in handleToolExecutionEnd when hook is registered", async () => {
     hookMocks.runner.hasHooks.mockReturnValue(true);
 
     const ctx = createToolHandlerCtx({
@@ -204,7 +196,7 @@ describe("after_tool_call hook wiring", () => {
     expect(getAfterToolCallCall().context?.agentId).toBeUndefined();
   });
 
-  it("does not fire after_tool_call when no hooks registered", async () => {
+  it("does not call runAfterToolCall when no hooks registered", async () => {
     hookMocks.runner.hasHooks.mockReturnValue(false);
 
     const ctx = createToolHandlerCtx({ runId: "r" });

@@ -69,11 +69,8 @@ export type GatewayRequestContext = {
   chatDeltaSentAt: Map<string, number>;
   chatDeltaLastBroadcastLen: Map<string, number>;
   /**
-   * Runs whose terminal `state: "final"` payload has already been broadcast
-   * by the lifecycle event handler in response to an `llm_output` hook
-   * block. The `chat.send` `.then()` callback consults this map and skips
-   * its own `broadcastChatFinal`/`broadcastSideResult` so the hook block
-   * message is not overwritten by the run-failed fallback text.
+   * Runs already finalized by the lifecycle event path for a message-end hook
+   * block; chat.send should not overwrite their policy text.
    */
   chatHookFinalizedRuns: Map<string, number>;
   addChatRun: (sessionId: string, entry: { sessionKey: string; clientRunId: string }) => void;

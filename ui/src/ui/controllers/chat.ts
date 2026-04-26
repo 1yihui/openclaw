@@ -339,13 +339,7 @@ export type ChatState = {
   chatRunId: string | null;
   chatStream: string | null;
   chatStreamStartedAt: number | null;
-  /**
-   * Live retry status surfaced when an llm_output hook blocks a response
-   * with `retry: true`. Populated by the `state: "retry"` chat event so
-   * the streaming bubble can render a muted footer telling the user
-   * "retrying (1/2) — last attempt blocked by ...". Cleared on the next
-   * `state: "delta"` from a successful attempt or any terminal state.
-   */
+  /** Live retry status from message-end hook retry events. */
   chatRetryNotice: {
     retryCount: number;
     maxRetries: number;
@@ -360,6 +354,7 @@ export type ChatEventPayload = {
   state: "delta" | "final" | "aborted" | "error" | "retry";
   message?: unknown;
   errorMessage?: string;
+  errorKind?: string;
   retryCount?: number;
   maxRetries?: number;
   reason?: string;
@@ -743,17 +738,9 @@ export function handleChatEvent(state: ChatState, payload?: ChatEventPayload) {
     state.chatRetryNotice = null;
     state.lastError = payload.errorMessage ?? "chat error";
   } else if (payload.state === "retry") {
-    // Server signaled that an llm_output hook is retrying. Clear the
-    // current stream buffer so the next attempt's deltas render in a
-    // fresh bubble instead of being appended to the prior attempt's
-    // partial text. Keep `chatRunId` so the run stays "live" and
-    // subsequent deltas continue routing to this same chat session.
+    // Keep the run live but clear the current stream so the retry renders fresh.
     state.chatStream = "";
     state.chatStreamStartedAt = Date.now();
-    // Stash retry metadata so the chat view can render a muted footer
-    // ("Retrying 1/2 — last attempt blocked by …") under the streaming
-    // bubble. Without this surface the user sees a 5-10s gap of nothing
-    // happening between attempts and has no idea the system is retrying.
     if (
       typeof payload.retryCount === "number" &&
       typeof payload.maxRetries === "number" &&

@@ -81,7 +81,7 @@ import {
   resolveChannelReactionGuidance,
 } from "../../channel-tools.js";
 import { DEFAULT_CONTEXT_TOKENS } from "../../defaults.js";
-import { resolveOpenClawDocsPath } from "../../docs-path.js";
+import { resolveOpenClawReferencePaths } from "../../docs-path.js";
 import { isTimeoutError } from "../../failover-error.js";
 import { resolveHeartbeatPromptForSystemPrompt } from "../../heartbeat-system-prompt.js";
 import { resolveImageSanitizationLimits } from "../../image-sanitization.js";
@@ -1164,7 +1164,7 @@ export async function runEmbeddedAttempt(
     // When toolsAllow is set, use minimal prompt and strip skills catalog
     const effectivePromptMode = params.toolsAllow?.length ? ("minimal" as const) : promptMode;
     const effectiveSkillsPrompt = params.toolsAllow?.length ? undefined : skillsPrompt;
-    const docsPath = await resolveOpenClawDocsPath({
+    const openClawReferences = await resolveOpenClawReferencePaths({
       workspaceDir: effectiveWorkspace,
       argv1: process.argv[1],
       cwd: effectiveWorkspace,
@@ -1221,7 +1221,8 @@ export async function runEmbeddedAttempt(
         reasoningTagHint,
         heartbeatPrompt,
         skillsPrompt: effectiveSkillsPrompt,
-        docsPath: docsPath ?? undefined,
+        docsPath: openClawReferences.docsPath ?? undefined,
+        sourcePath: openClawReferences.sourcePath ?? undefined,
         ttsHint,
         workspaceNotes: workspaceNotes?.length ? workspaceNotes : undefined,
         reactionGuidance,
@@ -1324,6 +1325,12 @@ export async function runEmbeddedAttempt(
         contextWindowTokens: params.contextTokenBudget,
         inputProvenance: params.inputProvenance,
         allowSyntheticToolResults: transcriptPolicy.allowSyntheticToolResults,
+        missingToolResultText:
+          params.model.api === "openai-responses" ||
+          params.model.api === "azure-openai-responses" ||
+          params.model.api === "openai-codex-responses"
+            ? "aborted"
+            : undefined,
         allowedToolNames,
       });
       trackSessionManagerAccess(params.sessionFile);
@@ -1971,6 +1978,7 @@ export async function runEmbeddedAttempt(
         const limited = transcriptPolicy.repairToolUseResultPairing
           ? sanitizeToolUseResultPairing(truncated, {
               erroredAssistantResultPolicy: "drop",
+              ...(isOpenAIResponsesApi ? { missingToolResultText: "aborted" } : {}),
             })
           : truncated;
         cacheTrace?.recordStage("session:limited", { messages: limited });
@@ -2644,7 +2652,6 @@ export async function runEmbeddedAttempt(
             );
           }
 
-          // Run before_agent_run gate hook (sync path)
           if (hookRunner?.hasHooks("before_agent_run")) {
             const beforeRunResult = await hookRunner.runBeforeAgentRun(
               {
@@ -2672,23 +2679,9 @@ export async function runEmbeddedAttempt(
                   `before_agent_run hook blocked by ${beforeRunPluginId}: ${beforeRunDecision.reason}`,
                 );
                 const blockReplacementMsg = resolveBlockMessage(beforeRunDecision);
-                // Persist the user's original message into the JSONL with
-                // its agent-visible content REPLACED by the policy notice
-                // and the original moved into a sidecar field for SPA-only
-                // display. This implements the "the human sees what they
-                // typed; no agent can ever see it" contract for blocked
-                // user inputs. Without this, the user message is never
-                // persisted (since skipPromptSubmission=true) and the SPA
-                // shows nothing for the user's blocked turn.
-                log.warn(
-                  `before_agent_run block: about to persist redacted user message — promptLen=${params.prompt?.length ?? 0} sessionKey=${params.sessionKey} agentId=${sessionAgentId}`,
-                );
                 if (params.prompt) {
                   try {
-                    log.warn(
-                      `before_agent_run block: calling appendBlockedUserMessageToSessionTranscript now`,
-                    );
-                    const blockedResult = await appendBlockedUserMessageToSessionTranscript({
+                    await appendBlockedUserMessageToSessionTranscript({
                       agentId: sessionAgentId,
                       sessionKey: params.sessionKey ?? "",
                       originalText: params.prompt,
@@ -2698,9 +2691,6 @@ export async function runEmbeddedAttempt(
                       idempotencyKey: `hook-block:before_agent_run:user:${params.runId}`,
                       updateMode: "inline",
                     });
-                    log.warn(
-                      `before_agent_run block: appendBlocked returned ${JSON.stringify(blockedResult)}`,
-                    );
                   } catch (err) {
                     log.warn(
                       `before_agent_run block: failed to persist redacted user message: ${
@@ -2709,9 +2699,6 @@ export async function runEmbeddedAttempt(
                     );
                   }
                 }
-                // before_agent_run does not support `retry`: the prompt has not
-                // changed yet, so retry would loop on the same input. Surface the
-                // block message and terminate the turn.
                 promptError = new Error(blockReplacementMsg);
                 promptErrorSource = "hook:before_agent_run";
                 skipPromptSubmission = true;
@@ -2868,7 +2855,7 @@ export async function runEmbeddedAttempt(
                 handled: true,
                 truncatedCount: truncationResult.truncatedCount,
               };
-              log.warn(
+              log.info(
                 `[context-overflow-precheck] early tool-result truncation succeeded for ` +
                   `${params.provider}/${params.modelId} route=${preemptiveCompaction.route} ` +
                   `truncatedCount=${truncationResult.truncatedCount} ` +
@@ -2946,19 +2933,15 @@ export async function runEmbeddedAttempt(
                 activeSession.agent.state.messages = retryMessages;
                 await abortable(activeSession.agent.continue());
               } else {
-                // Defensive fallback for unexpected transcript shapes. This can
-                // leave a duplicate retry prompt, so scrub it best-effort.
+                // Fallback for unexpected transcript shapes; scrub duplicate prompt best-effort.
                 await abortable(activeSession.prompt(effectivePrompt));
                 try {
                   await redactDuplicateUserMessage(params.sessionFile, effectivePrompt);
                 } catch {
-                  // Best-effort cleanup; duplicate user is cosmetically
-                  // tolerable if redaction fails.
+                  // Duplicate user is cosmetic if cleanup fails.
                 }
               }
             } else if (imageResult.images.length > 0) {
-              // Only pass images option if there are actually images to pass
-              // This avoids potential issues with models that don't expect the images parameter
               await abortable(
                 activeSession.prompt(effectivePrompt, { images: imageResult.images }),
               );
@@ -3342,6 +3325,12 @@ export async function runEmbeddedAttempt(
               sessionId: params.sessionId,
               provider: params.provider,
               model: params.modelId,
+              resolvedRef:
+                params.runtimePlan?.observability.resolvedRef ??
+                `${params.provider}/${params.modelId}`,
+              ...(params.runtimePlan?.observability.harnessId
+                ? { harnessId: params.runtimePlan.observability.harnessId }
+                : {}),
               prompt: finalPromptText ?? params.prompt,
               assistantTexts,
               lastAssistant,
@@ -3349,6 +3338,7 @@ export async function runEmbeddedAttempt(
             },
             {
               runId: params.runId,
+              trace: freezeDiagnosticTraceContext(diagnosticTrace),
               agentId: hookAgentId,
               sessionKey: params.sessionKey,
               sessionId: params.sessionId,
@@ -3498,6 +3488,7 @@ export async function runEmbeddedAttempt(
           allowWsSessionPool:
             !promptError && !aborted && !timedOut && !idleTimedOut && !timedOutDuringCompaction,
           sessionId: params.sessionId,
+          bundleMcpRuntime,
           bundleLspRuntime,
           sessionLock,
         });

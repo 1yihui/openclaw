@@ -204,24 +204,13 @@ export type ChatRunState = {
   deltaLastBroadcastLen: Map<string, number>;
   abortedRuns: Map<string, number>;
   /**
-   * Runs that have already been terminally finalized via the chat event
-   * pipeline by an `llm_output` hook block. The downstream `chat.send`
-   * `.then()` callback consults this map to suppress the second
-   * `broadcastChatFinal` (which would otherwise overwrite the hook block
-   * message in the UI with the run-failed fallback text).
-   *
-   * Values are timestamps (ms) so the maintenance sweep can age entries out.
+   * Message-end hook blocks finalize through lifecycle events; this prevents
+   * chat.send from overwriting the policy text with its generic fallback.
    */
   hookFinalizedRuns: Map<string, number>;
   /**
-   * Tracks runs whose latest attempt was blocked by an llm_output hook
-   * with a retry decision. While the runId is in this set, the next
-   * `agent_end` lifecycle event MUST NOT be promoted to `state: "final"`
-   * by `emitChatFinal` — the SDK is about to spin a fresh attempt under
-   * the same runId, and emitting `final` would cause the SPA to
-   * permanently close the chat run (clearing chatRunId, refusing further
-   * deltas). Cleared by `clearPendingRetry()` when the next attempt
-   * starts (or by `agent_end` consuming it once).
+   * Message-end hook retries keep the run open across SDK attempts; suppress
+   * the interim agent_end so the SPA stays attached to the same run id.
    */
   pendingRetryRuns: Set<string>;
   clear: () => void;
@@ -624,12 +613,8 @@ export function createAgentEventHandler({
     const isAborted =
       chatRunState.abortedRuns.has(clientRunId) || chatRunState.abortedRuns.has(evt.runId);
 
-    // Suppress the `state: "final"` broadcast when an llm_output retry
-    // is queued. The SDK fires `agent_end` after every `session.prompt()`
-    // call, including the one that just got blocked-and-retried. Without
-    // this guard, the SPA would receive `state: "final"`, clear
-    // `chatRunId`, and ignore deltas from the next attempt — producing
-    // the "no bubble at all between attempts" symptom.
+    // A retry creates a fresh SDK attempt under the same run id; keep the SPA
+    // attached until that attempt streams or finishes.
     const isPendingRetry =
       chatRunState.pendingRetryRuns.has(evt.runId) ||
       chatRunState.pendingRetryRuns.has(chatLink?.clientRunId ?? "");
@@ -891,16 +876,11 @@ export function createAgentEventHandler({
       nodeSendToSession(sessionKey, "chat", payload);
       return;
     }
-    // When an error arrives after streaming deltas were already sent (e.g.
-    // an llm_output hook blocked the response post-completion), emit a
-    // `state: "final"` with the error message as content so the UI
-    // replaces the streamed text.  The control-ui reliably handles
-    // "final" after deltas but may not clear streamed content on "error".
+    // Message-end hook blocks arrive after streamed deltas; emit a final
+    // replacement first so the UI swaps the streamed text for policy text.
     const errorText = error ? formatForLog(error) : undefined;
     if (errorKind === "hook_block" && errorText) {
-      // Emit a "final" with the block message as content to replace the
-      // streamed deltas, then immediately follow with an "error" so UIs
-      // that only clear on error also show the block.
+      // Follow with an error for clients that only clear pending state on error.
       const finalPayload = {
         runId: clientRunId,
         sessionKey,
@@ -924,13 +904,7 @@ export function createAgentEventHandler({
       };
       broadcast("chat", errorPayload);
       nodeSendToSession(sessionKey, "chat", errorPayload);
-      // Record this run as terminally finalized via hook_block so the
-      // downstream `chat.send` `.then()` callback skips its own
-      // `broadcastChatFinal`. Without this guard the reply pipeline's
-      // run-failed fallback text (returned by agent-runner-execution) would
-      // be re-broadcast as a second `state: "final"` and overwrite the
-      // block message in the control-ui (which trusts the most recent
-      // `state: "final"` payload).
+      // Mark this run so chat.send does not overwrite the policy text.
       chatRunState.hookFinalizedRuns.set(clientRunId, Date.now());
       return;
     }
@@ -1074,17 +1048,12 @@ export function createAgentEventHandler({
       if (!isAborted && evt.stream === "assistant" && typeof evt.data?.text === "string") {
         emitChatDelta(sessionKey, clientRunId, evt.runId, evt.seq, evt.data.text, evt.data.delta);
       }
-      // Retry signal from the llm_output hook in attempt.ts: clear server
-      // and SPA chat buffers so the next attempt's deltas render in a
-      // fresh bubble instead of getting concatenated to the prior
-      // attempt's text.
+      // Retry signal from the message-end hook: clear buffers so the next
+      // attempt renders in a fresh bubble.
       if (!isAborted && evt.stream === "chat_retry") {
         clearBufferedChatState(clientRunId);
-        // Mark this runId as expecting a retry. The next `agent_end`
-        // lifecycle event will be suppressed (see emitChatFinal callsite
-        // in the lifecycle handler) so the SPA does not see `state:
-        // "final"` and tear down the chat run before the retry attempt
-        // streams.
+        // Suppress the current attempt's agent_end; the retry attempt owns the
+        // next terminal state.
         chatRunState.pendingRetryRuns.add(clientRunId);
         if (evt.runId !== clientRunId) {
           chatRunState.pendingRetryRuns.add(evt.runId);
@@ -1110,10 +1079,8 @@ export function createAgentEventHandler({
 
     if (lifecyclePhase === "error") {
       clearBufferedChatState(clientRunId);
-      // `hookOverride` is set by deferred lifecycle errors from
-      // llm_output hooks.  The run completed successfully from the
-      // chat.send RPC's perspective, so the normal double-error
-      // prevention (`skipChatErrorFinal`) must not suppress this event.
+      // Message-end hook blocks complete the run from chat.send's perspective,
+      // so the normal double-error prevention must not suppress this event.
       const isHookOverride = evt.data?.hookOverride === true;
       const skipChatErrorFinal = !isHookOverride && isChatSendRunActive(evt.runId) && !chatLink;
       if (isAborted || lifecycleErrorRetryGraceMs <= 0 || isHookOverride) {

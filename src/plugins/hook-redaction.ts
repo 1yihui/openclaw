@@ -1,11 +1,4 @@
-/**
- * Hook Redaction API
- *
- * Provides the `redactMessages()` function for hard-deleting messages
- * from session transcripts. This is a general-purpose core capability —
- * any plugin can call it for any reason (moderation, PII scrubbing,
- * user request, compliance, etc.).
- */
+/** Internal transcript redaction helpers used by message-end hook retries. */
 
 import { createHash } from "node:crypto";
 import { readFile, writeFile, rename, appendFile, mkdir } from "node:fs/promises";

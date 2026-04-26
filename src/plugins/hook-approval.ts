@@ -9,10 +9,6 @@ import { callGatewayTool } from "../agents/tools/gateway.js";
 import type { HookDecisionAsk } from "./hook-decision-types.js";
 import { PluginApprovalResolutions, type PluginApprovalResolution } from "./hook-types.js";
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
 export type HookApprovalResult = "allow-once" | "deny" | "timeout" | "cancelled";
 
 export type PluginApprovalClientFailure = "missing-id" | "no-route" | "aborted" | "gateway-error";
@@ -43,38 +39,20 @@ export type RequestPluginApprovalParams = {
 };
 
 export type HookApprovalParams = {
-  /** Which hook point is requesting approval. */
   hookPoint: string;
-  /** The ask decision from the plugin. */
   decision: HookDecisionAsk;
-  /** Plugin ID that returned the ask decision. */
   pluginId?: string;
-  /** Current run ID. */
   runId?: string;
-  /** Current session key. */
   sessionKey?: string;
-  /** Current agent ID. */
   agentId?: string;
-  /** Channel ID for delivery routing. */
   channelId?: string;
-  /** Abort signal — cancelled if the run is aborted. */
   signal?: AbortSignal;
-  /** Logger for warnings/errors. */
   log?: { warn: (msg: string) => void };
 };
 
-// ---------------------------------------------------------------------------
-// Implementation
-// ---------------------------------------------------------------------------
-
 /**
  * Request human approval for a gate hook decision.
- *
- * Sends a `plugin.approval.request` to the gateway, waits for the user
- * to respond with allow-once or deny, and returns the result.
- *
- * On timeout, returns "timeout" — the caller decides behavior based on
- * `decision.timeoutBehavior`.
+ * On timeout, the caller applies the hook's timeout behavior.
  */
 export async function requestHookApproval(params: HookApprovalParams): Promise<HookApprovalResult> {
   const result = await requestPluginApproval({
@@ -201,10 +179,6 @@ export async function requestPluginApproval(
     return { decision: PluginApprovalResolutions.CANCELLED, failure: "gateway-error", error: err };
   }
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function readStringField(record: unknown, field: string): string | undefined {
   if (!record || typeof record !== "object") {

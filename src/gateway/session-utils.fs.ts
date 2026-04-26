@@ -155,7 +155,7 @@ export function readSessionMessages(
   const messages: unknown[] = [];
   let messageSeq = 0;
   for (const parsed of parsedEntries) {
-    if (activeEntryIds) {
+    if (activeEntryIds && (parsed as { message?: unknown })?.message) {
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
         continue;
       }
@@ -166,10 +166,6 @@ export function readSessionMessages(
     }
     if ((parsed as { message?: unknown })?.message) {
       messageSeq += 1;
-      // Forward the `originalBlockedContent` sidecar (set by
-      // appendBlockedUserMessageToSessionTranscript when a hook blocks a
-      // user input) so the SPA can render the original to the human
-      // while the agent transcript only ever contains the redacted stub.
       const originalBlocked =
         (parsed as { originalBlockedContent?: unknown }).originalBlockedContent &&
         typeof (parsed as { originalBlockedContent?: unknown }).originalBlockedContent ===

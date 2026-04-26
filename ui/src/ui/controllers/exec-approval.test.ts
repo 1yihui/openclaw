@@ -49,6 +49,26 @@ describe("parsePluginApprovalRequested", () => {
     expect(result!.expiresAtMs).toBe(120_000);
   });
 
+  it("preserves an explicitly empty allowedDecisions list", () => {
+    const result = parsePluginApprovalRequested({
+      ...validPayload,
+      request: { ...validPayload.request, allowedDecisions: [] },
+    });
+
+    expect(result).not.toBeNull();
+    expect(result!.request.allowedDecisions).toEqual([]);
+  });
+
+  it("drops invalid allowedDecisions without falling back to all actions", () => {
+    const result = parsePluginApprovalRequested({
+      ...validPayload,
+      request: { ...validPayload.request, allowedDecisions: ["bad-decision"] },
+    });
+
+    expect(result).not.toBeNull();
+    expect(result!.request.allowedDecisions).toEqual([]);
+  });
+
   it("returns null when title is missing from request", () => {
     const {
       request: { title: _, ...restRequest },

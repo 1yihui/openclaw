@@ -747,7 +747,6 @@ export async function runEmbeddedPiAgent(
         let accumulatedReplayState = createEmbeddedRunReplayState();
         // Hoisted so the retry-limit error path can use the most recent API total.
         let lastTurnTotal: number | undefined;
-        // Carry forward the llm_message_end block retry count across attempts.
         let llmOutputRetryCountCarry = 0;
         while (true) {
           if (runLoopIterations >= MAX_RUN_LOOP_ITERATIONS) {
@@ -947,9 +946,6 @@ export async function runEmbeddedPiAgent(
             lastAssistant: sessionLastAssistant,
             currentAttemptAssistant,
           } = attempt;
-          // promptError / promptErrorSource may be cleared by lifecycle-hook
-          // handling below (e.g. `hook:llm_message_end` block decisions are policy
-          // decisions, not LLM failures, and must not enter the failover path).
           let promptError = attempt.promptError;
           let promptErrorSource = attempt.promptErrorSource;
           bootstrapPromptWarningSignaturesSeen =
@@ -1389,18 +1385,10 @@ export async function runEmbeddedPiAgent(
             };
           }
 
-          // Lifecycle hook (`llm_message_end`) `block` decisions are not LLM/transport
-          // failures — they are policy decisions made on a successful response.
-          // They must NOT enter the failover/model-rotation logic below; either
-          // we retry (when the plugin asked for it and the budget allows), or
-          // we let the rest of this turn run normally so the replacement
-          // assistant text is delivered as a completed turn (no error).
+          // Message-end hook blocks are policy decisions, not provider failures.
           if (promptErrorSource === "hook:llm_message_end" && !aborted) {
-            // Update carry so the next attempt knows how many retries were consumed.
             llmOutputRetryCountCarry = attempt.llmOutputRetryCount ?? 0;
             if (attempt.llmOutputRetryRequested) {
-              // Clear the error and re-invoke the LLM. The rejected response
-              // has been scrubbed from the transcript by the hook handler.
               promptError = null;
               promptErrorSource = null;
               log.debug(
@@ -1408,13 +1396,6 @@ export async function runEmbeddedPiAgent(
               );
               continue;
             }
-            // Non-retry block: the hook set promptError to the block
-            // message.  Let it fall through to the failover logic below
-            // which will classify it as `surface_error` (not a retryable
-            // provider failure) and throw — surfacing the block message
-            // to the user via the error event path.  The streaming buffer
-            // already delivered the original text, so the error path is
-            // the only reliable way to override what the UI shows.
           }
 
           if (promptError && !aborted && promptErrorSource !== "compaction") {

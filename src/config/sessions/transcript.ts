@@ -261,9 +261,7 @@ export async function appendExactAssistantMessageToSessionTranscript(params: {
 }
 
 /**
- * Persist a user message that was blocked by `before_agent_run` (or any
- * pre-LLM hook) with redacted content visible to the agent and the original
- * content stashed in a sidecar field for SPA-only display.
+ * Persist a user message blocked before model submission.
  *
  * Contract:
  *   - `message.content` is REPLACED with a stub so the agent transcript only
@@ -277,13 +275,9 @@ export async function appendExactAssistantMessageToSessionTranscript(params: {
 export async function appendBlockedUserMessageToSessionTranscript(params: {
   agentId?: string;
   sessionKey: string;
-  /** The user's actual prompt — moved to the sidecar, never persisted in message.content. */
   originalText: string;
-  /** Replacement content the agent transcript will see (the policy notice). */
   redactedText: string;
-  /** Plugin id that requested the block, for the sidecar metadata. */
   pluginId: string;
-  /** Reason string from the hook decision, for the sidecar metadata. */
   reason: string;
   idempotencyKey?: string;
   storePath?: string;

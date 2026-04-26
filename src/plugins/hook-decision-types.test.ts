@@ -56,10 +56,6 @@ describe("HookDecision types", () => {
       ).toBe(true);
     });
 
-    it("does not recognize the removed `redact` outcome", () => {
-      expect(isHookDecision({ outcome: "redact", reason: "r" })).toBe(false);
-    });
-
     it("rejects null", () => {
       expect(isHookDecision(null)).toBe(false);
     });
@@ -99,9 +95,7 @@ describe("HookDecision types", () => {
       expect(HOOK_DECISION_SEVERITY.ask).toBeLessThan(HOOK_DECISION_SEVERITY.block);
     });
 
-    it("does not expose a `redact` severity entry", () => {
-      // Type-level guarantee: HOOK_DECISION_SEVERITY is keyed on
-      // HookDecision["outcome"], which no longer includes "redact".
+    it("only exposes severity entries for valid outcomes", () => {
       expect(Object.keys(HOOK_DECISION_SEVERITY).toSorted()).toEqual(["ask", "block", "pass"]);
     });
   });
@@ -189,25 +183,6 @@ describe("HookDecision types", () => {
         message: "Please rephrase your request.",
       };
       expect(resolveBlockMessage(decision)).toBe("Please rephrase your request.");
-    });
-
-    it("falls back to deprecated `userMessage` for backwards compatibility", () => {
-      const decision: HookDecisionBlock = {
-        outcome: "block",
-        reason: "policy",
-        userMessage: "Legacy text",
-      };
-      expect(resolveBlockMessage(decision)).toBe("Legacy text");
-    });
-
-    it("prefers `message` over the deprecated `userMessage`", () => {
-      const decision: HookDecisionBlock = {
-        outcome: "block",
-        reason: "policy",
-        message: "New text",
-        userMessage: "Old text",
-      };
-      expect(resolveBlockMessage(decision)).toBe("New text");
     });
 
     it("falls back to the default message when neither is provided", () => {

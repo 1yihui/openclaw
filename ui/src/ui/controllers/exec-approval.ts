@@ -45,7 +45,7 @@ function parseAllowedDecisions(value: unknown): ExecApprovalDecision[] | undefin
     (decision): decision is ExecApprovalDecision =>
       decision === "allow-once" || decision === "allow-always" || decision === "deny",
   );
-  return decisions.length > 0 ? decisions : undefined;
+  return decisions;
 }
 
 export function parseExecApprovalRequested(payload: unknown): ExecApprovalRequest | null {

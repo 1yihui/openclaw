@@ -63,27 +63,6 @@ describe("before_agent_run hook", () => {
     }
   });
 
-  it("still accepts the deprecated `userMessage` field on block (backwards compat)", async () => {
-    const registry = makeRegistry([
-      {
-        pluginId: "test",
-        hookName: "before_agent_run",
-        handler: async () => ({
-          outcome: "block" as const,
-          reason: "unsafe content",
-          userMessage: "Legacy field",
-        }),
-        source: "test",
-      },
-    ]);
-    const runner = createHookRunner(registry);
-    const result = await runner.runBeforeAgentRun({ prompt: "bad", messages: [] }, ctx);
-    expect(result?.decision.outcome).toBe("block");
-    if (result?.decision.outcome === "block") {
-      expect(result.decision.userMessage).toBe("Legacy field");
-    }
-  });
-
   it("merges with most-restrictive-wins: block beats pass", async () => {
     const registry = makeRegistry([
       {
@@ -151,6 +130,20 @@ describe("before_agent_run hook", () => {
     const runner = createHookRunner(registry);
     const result = await runner.runBeforeAgentRun({ prompt: "test", messages: [] }, ctx);
     // void => undefined result (no decision)
+    expect(result).toBeUndefined();
+  });
+
+  it("ignores invalid handler results", async () => {
+    const registry = makeRegistry([
+      {
+        pluginId: "invalid-plugin",
+        hookName: "before_agent_run",
+        handler: async () => ({ block: true }) as never,
+        source: "test",
+      },
+    ]);
+    const runner = createHookRunner(registry);
+    const result = await runner.runBeforeAgentRun({ prompt: "test", messages: [] }, ctx);
     expect(result).toBeUndefined();
   });
 

@@ -32,7 +32,6 @@ export type EmbeddedRunAttemptParams = EmbeddedRunAttemptBase & {
   authProfileId?: string;
   /** Source for the resolved auth profile (user-locked or automatic). */
   authProfileIdSource?: "auto" | "user";
-  /** Carry forward the retry count from prior attempts for `llm_message_end` block retries. */
   llmOutputRetryCount?: number;
   provider: string;
   modelId: string;
@@ -116,13 +115,9 @@ export type EmbeddedRunAttemptResult = {
   /** True when sessions_yield tool was called during this attempt. */
   yieldDetected?: boolean;
   /**
-   * True when an `llm_message_end` lifecycle hook returned `block` with
-   * `retry: true` and the retry budget had not yet been exhausted, so the
-   * outer run loop should re-invoke the LLM rather than surface the
-   * replacement message.
+   * True when a message-end hook requested retry and the retry budget remains.
    */
   llmOutputRetryRequested?: boolean;
-  /** Number of `llm_message_end` block retries already consumed by this attempt. */
   llmOutputRetryCount?: number;
   replayMetadata: EmbeddedRunReplayMetadata;
   itemLifecycle: {

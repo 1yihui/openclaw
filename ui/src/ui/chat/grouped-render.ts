@@ -261,31 +261,13 @@ export type RetryNotice = {
   reason: string;
 };
 
-/**
- * Muted footer shown under the streaming bubble while an llm_output hook
- * is retrying. Without this surface the user sees a multi-second gap of
- * nothing happening between attempts and has no idea the system is
- * retrying. Mirrors the style of other muted attribution rows used
- * throughout the chat view.
- */
 function renderRetryNoticeFooter(notice: RetryNotice | null | undefined) {
   if (!notice) {
     return nothing;
   }
   return html`
-    <div
-      class="chat-retry-notice"
-      role="status"
-      aria-live="polite"
-      title=${notice.reason}
-      style="
-        margin-top: 4px;
-        font-size: 0.75rem;
-        opacity: 0.6;
-        font-style: italic;
-      "
-    >
-      🔁 Retrying ${notice.retryCount}/${notice.maxRetries} — last attempt blocked: ${notice.reason}
+    <div class="chat-retry-notice" role="status" aria-live="polite" title=${notice.reason}>
+      Retrying ${notice.retryCount}/${notice.maxRetries}: last attempt blocked: ${notice.reason}
     </div>
   `;
 }
@@ -1392,7 +1374,6 @@ function renderGroupedMessage(
 
   const hasActions = canCopyMarkdown || canExpand;
 
-  // Detect blocked user messages that have originalBlockedContent sidecar
   const isBlockedUserMessage =
     normalizedRole === "user" &&
     Boolean((m.__openclaw as Record<string, unknown> | undefined)?.originalBlockedContent);
@@ -1536,17 +1517,7 @@ function renderGroupedMessage(
               : nothing}
           `}
       ${isBlockedUserMessage
-        ? html`<div
-            style="
-            text-align: right;
-            margin-top: 4px;
-            font-size: 0.7em;
-            opacity: 0.45;
-            font-style: italic;
-          "
-          >
-            hidden from agents
-          </div>`
+        ? html`<div class="chat-blocked-user-note">hidden from agents</div>`
         : nothing}
     </div>
   `;

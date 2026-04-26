@@ -637,7 +637,7 @@ export function handleMessageEnd(
     rawThinking: extractAssistantThinking(assistantMessage),
   });
 
-  let text = resolveSilentReplyFallbackText({
+  const text = resolveSilentReplyFallbackText({
     text: ctx.stripBlockTags(rawVisibleText, { thinking: false, final: false }),
     messagingToolSentTexts: ctx.state.messagingToolSentTexts,
   });
@@ -650,8 +650,8 @@ export function handleMessageEnd(
   const parsedText = trimmedText
     ? parseReplyDirectives(splitTrailingDirective(trimmedText, { final: true }).text)
     : null;
-  const cleanedText = parsedText?.text ?? "";
-  const { mediaUrls, hasMedia } = resolveSendableOutboundReplyParts(parsedText ?? {});
+  let cleanedText = parsedText?.text ?? "";
+  let { mediaUrls, hasMedia } = resolveSendableOutboundReplyParts(parsedText ?? {});
 
   const finalizeMessageEnd = () => {
     ctx.state.deltaBuffer = "";
