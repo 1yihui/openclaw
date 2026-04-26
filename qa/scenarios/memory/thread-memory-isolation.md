@@ -29,6 +29,7 @@ execution:
     memoryFact: "Thread-hidden codename: ORBIT-22."
     memoryQuery: "hidden thread codename ORBIT-22"
     expectedNeedle: "ORBIT-22"
+    sessionKey: "agent:qa:thread-memory-isolation"
     channelId: qa-room
     channelTitle: QA Room
     threadTitle: "Thread memory QA"
@@ -54,6 +55,14 @@ steps:
               expr: config.memoryQuery
             expectedNeedle:
               expr: config.expectedNeedle
+      - call: waitForGatewayHealthy
+        args:
+          - ref: env
+          - 60000
+      - call: waitForQaChannelReady
+        args:
+          - ref: env
+          - 60000
       - call: handleQaAction
         saveAs: threadPayload
         args:
@@ -74,22 +83,37 @@ steps:
       - set: beforeCursor
         value:
           expr: state.getSnapshot().messages.length
-      - call: state.addInboundMessage
+      - call: env.gateway.call
+        saveAs: started
         args:
-          - conversation:
-              id:
-                expr: config.channelId
-              kind: channel
-              title:
-                expr: config.channelTitle
-            senderId: alice
-            senderName: Alice
-            text:
+          - agent
+          - idempotencyKey:
+              expr: randomUUID()
+            agentId: qa
+            deliver: true
+            channel: qa-channel
+            replyChannel: qa-channel
+            sessionKey:
+              expr: config.sessionKey
+            message:
               expr: config.prompt
+            to:
+              expr: config.channelId
+            replyTo:
+              expr: config.channelId
             threadId:
               ref: threadId
-            threadTitle:
-              expr: config.threadTitle
+          - timeoutMs:
+              expr: liveTurnTimeoutMs(env, 45000)
+      - call: env.gateway.call
+        args:
+          - agent.wait
+          - runId:
+              expr: started.runId
+            timeoutMs:
+              expr: liveTurnTimeoutMs(env, 45000)
+          - timeoutMs:
+              expr: liveTurnTimeoutMs(env, 45000) + 5000
       - call: waitForOutboundMessage
         saveAs: outbound
         args:

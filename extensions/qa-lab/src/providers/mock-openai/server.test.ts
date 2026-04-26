@@ -930,6 +930,46 @@ describe("qa mock openai server", () => {
       "Protocol note: I checked memory and the current Project Nebula codename is ORBIT-10.",
     );
 
+    const threadMemorySummary = await fetch(`${server.baseUrl}/v1/responses`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        stream: false,
+        input: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "input_text",
+                text: "@openclaw Thread memory check: what is the hidden thread codename stored only in memory? Use memory tools first and reply only in this thread.",
+              },
+            ],
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "input_text",
+                text: "Continue from the memory tool result and answer the thread.",
+              },
+            ],
+          },
+          {
+            type: "function_call_output",
+            output: JSON.stringify({
+              text: "Thread-hidden codename: ORBIT-22.",
+            }),
+          },
+        ],
+      }),
+    });
+    expect(threadMemorySummary.status).toBe(200);
+    expect(JSON.stringify(await threadMemorySummary.json())).toContain(
+      "Protocol note: I checked memory in-thread and the hidden thread codename is ORBIT-22.",
+    );
+
     const activeMemorySearch = await fetch(`${server.baseUrl}/v1/responses`, {
       method: "POST",
       headers: {
