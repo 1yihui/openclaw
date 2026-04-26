@@ -12,6 +12,7 @@ export type CodexAppServerCommandSource = "managed" | "resolved-managed" | "conf
 export type CodexComputerUseConfig = {
   enabled?: boolean;
   autoInstall?: boolean;
+  marketplaceDiscoveryTimeoutMs?: number;
   marketplaceSource?: string;
   marketplacePath?: string;
   marketplaceName?: string;
@@ -22,6 +23,7 @@ export type CodexComputerUseConfig = {
 export type ResolvedCodexComputerUseConfig = {
   enabled: boolean;
   autoInstall: boolean;
+  marketplaceDiscoveryTimeoutMs: number;
   pluginName: string;
   mcpServerName: string;
   marketplaceSource?: string;
@@ -92,6 +94,7 @@ export const CODEX_APP_SERVER_CONFIG_KEYS = [
 export const CODEX_COMPUTER_USE_CONFIG_KEYS = [
   "enabled",
   "autoInstall",
+  "marketplaceDiscoveryTimeoutMs",
   "marketplaceSource",
   "marketplacePath",
   "marketplaceName",
@@ -101,6 +104,7 @@ export const CODEX_COMPUTER_USE_CONFIG_KEYS = [
 
 export const DEFAULT_CODEX_COMPUTER_USE_PLUGIN_NAME = "computer-use";
 export const DEFAULT_CODEX_COMPUTER_USE_MCP_SERVER_NAME = "computer-use";
+export const DEFAULT_CODEX_COMPUTER_USE_MARKETPLACE_DISCOVERY_TIMEOUT_MS = 60_000;
 
 const codexAppServerTransportSchema = z.enum(["stdio", "websocket"]);
 const codexAppServerPolicyModeSchema = z.enum(["yolo", "guardian"]);
@@ -130,6 +134,7 @@ const codexPluginConfigSchema = z
       .object({
         enabled: z.boolean().optional(),
         autoInstall: z.boolean().optional(),
+        marketplaceDiscoveryTimeoutMs: z.number().positive().optional(),
         marketplaceSource: z.string().optional(),
         marketplacePath: z.string().optional(),
         marketplaceName: z.string().optional(),
@@ -248,6 +253,12 @@ export function resolveCodexComputerUseConfig(
     config.autoInstall ??
     readBooleanEnv(env.OPENCLAW_CODEX_COMPUTER_USE_AUTO_INSTALL) ??
     false;
+  const marketplaceDiscoveryTimeoutMs = normalizePositiveNumber(
+    params.overrides?.marketplaceDiscoveryTimeoutMs ??
+      config.marketplaceDiscoveryTimeoutMs ??
+      readNumberEnv(env.OPENCLAW_CODEX_COMPUTER_USE_MARKETPLACE_DISCOVERY_TIMEOUT_MS),
+    DEFAULT_CODEX_COMPUTER_USE_MARKETPLACE_DISCOVERY_TIMEOUT_MS,
+  );
   const enabled =
     params.overrides?.enabled ??
     config.enabled ??
@@ -257,6 +268,7 @@ export function resolveCodexComputerUseConfig(
   return {
     enabled,
     autoInstall,
+    marketplaceDiscoveryTimeoutMs,
     pluginName:
       readNonEmptyString(params.overrides?.pluginName) ??
       readNonEmptyString(config.pluginName) ??
@@ -373,6 +385,14 @@ function readBooleanEnv(value: string | undefined): boolean | undefined {
     return false;
   }
   return undefined;
+}
+
+function readNumberEnv(value: string | undefined): number | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function resolveArgs(configArgs: unknown, envArgs: string | undefined): string[] {

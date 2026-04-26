@@ -55,6 +55,11 @@
             "type": "boolean",
             "default": false
           },
+          "marketplaceDiscoveryTimeoutMs": {
+            "type": "number",
+            "minimum": 1,
+            "default": 60000
+          },
           "marketplaceSource": {
             "type": "string"
           },
@@ -156,6 +161,11 @@
     "computerUse.autoInstall": {
       "label": "Auto Install",
       "help": "Install the configured Computer Use plugin when Codex-mode turns start.",
+      "advanced": true
+    },
+    "computerUse.marketplaceDiscoveryTimeoutMs": {
+      "label": "Marketplace Discovery Timeout",
+      "help": "Maximum time to wait for Codex app-server to finish loading marketplaces during Computer Use install.",
       "advanced": true
     },
     "computerUse.marketplaceSource": {

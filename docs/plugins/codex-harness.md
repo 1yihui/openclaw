@@ -581,10 +581,11 @@ require Computer Use:
 With no marketplace fields, OpenClaw asks Codex app-server to use its discovered
 marketplaces. On a fresh Codex home, app-server seeds the official curated
 marketplace and OpenClaw follows the same loading shape as Codex: it polls
-`plugin/list` briefly before treating Computer Use as unavailable. If multiple
-known Codex marketplaces contain Computer Use, OpenClaw uses the Codex
-marketplace preference order before failing closed for unknown ambiguous
-matches.
+`plugin/list` during install before treating Computer Use as unavailable. The
+default discovery wait is 60 seconds and can be tuned with
+`marketplaceDiscoveryTimeoutMs`. If multiple known Codex marketplaces contain
+Computer Use, OpenClaw uses the Codex marketplace preference order before
+failing closed for unknown ambiguous matches.
 
 Use `marketplaceSource` for a non-default Codex marketplace source that
 app-server can add, or `marketplacePath` for a local marketplace file that

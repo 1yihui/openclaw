@@ -61,7 +61,6 @@ type MarketplaceResolution = {
 };
 
 const CURATED_MARKETPLACE_POLL_INTERVAL_MS = 2_000;
-const CURATED_MARKETPLACE_POLL_TIMEOUT_MS = 15_000;
 const COMPUTER_USE_MARKETPLACE_NAME_PRIORITY = ["openai-bundled", "openai-curated", "local"];
 
 export async function readCodexComputerUseStatus(
@@ -331,7 +330,7 @@ function marketplaceDiscoveryWaitUntil(params: {
     !params.config.marketplacePath &&
     !params.config.marketplaceName
   ) {
-    return Date.now() + CURATED_MARKETPLACE_POLL_TIMEOUT_MS;
+    return Date.now() + params.config.marketplaceDiscoveryTimeoutMs;
   }
   return 0;
 }

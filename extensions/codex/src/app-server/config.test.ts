@@ -148,6 +148,7 @@ describe("Codex app-server config", () => {
     ).toEqual({
       enabled: true,
       autoInstall: true,
+      marketplaceDiscoveryTimeoutMs: 60_000,
       pluginName: "env-fallback-plugin",
       mcpServerName: "computer-use",
       marketplaceName: "desktop-tools",
@@ -160,12 +161,14 @@ describe("Codex app-server config", () => {
           OPENCLAW_CODEX_COMPUTER_USE: "1",
           OPENCLAW_CODEX_COMPUTER_USE_MARKETPLACE_SOURCE: "github:example/plugins",
           OPENCLAW_CODEX_COMPUTER_USE_AUTO_INSTALL: "true",
+          OPENCLAW_CODEX_COMPUTER_USE_MARKETPLACE_DISCOVERY_TIMEOUT_MS: "30000",
         },
       }),
     ).toEqual(
       expect.objectContaining({
         enabled: true,
         autoInstall: true,
+        marketplaceDiscoveryTimeoutMs: 30_000,
         marketplaceSource: "github:example/plugins",
       }),
     );
