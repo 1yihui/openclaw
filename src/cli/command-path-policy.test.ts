@@ -62,6 +62,7 @@ describe("command-path-policy", () => {
       loadPlugins: "never",
       hideBanner: false,
       ensureCliPath: true,
+      networkProxy: "bypass",
     });
   });
 
@@ -79,6 +80,7 @@ describe("command-path-policy", () => {
         loadPlugins: "never",
         hideBanner: false,
         ensureCliPath: true,
+        networkProxy: "bypass",
       });
     }
   });
