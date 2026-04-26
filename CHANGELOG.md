@@ -443,7 +443,7 @@ Docs: https://docs.openclaw.ai
 - Diagnostics: emit structured tool execution diagnostic events with trace context, timing, and redacted error metadata. Thanks @vincentkoc.
 - Diagnostics: emit structured run and model-call diagnostic events with trace context, duration, and non-message error metadata. Thanks @vincentkoc.
 - CLI/Gateway: make `gateway status` start faster by skipping plugin loading on the read-only status path. (#71364) Thanks @andyylin.
-- Security/SSRF: add opt-in network-level SSRF protection via an operator-managed HTTP forward proxy configured with `ssrfProxy.proxyUrl`, so deployments can route OpenClaw's process-local HTTP clients through a filtering forward proxy while keeping application-level guards active. (#70044) Thanks @jesse-merhi.
+- Security/SSRF: add opt-in network-level SSRF protection via an operator-managed HTTP forward proxy configured with `proxy.proxyUrl`, so deployments can route OpenClaw's process-local HTTP clients through a filtering forward proxy while keeping application-level guards active. (#70044) Thanks @jesse-merhi.
 
 ### Fixes
 

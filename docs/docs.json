@@ -1496,7 +1496,7 @@
               {
                 "group": "Security",
                 "pages": [
-                  "security/ssrf-proxy",
+                  "security/network-proxy",
                   "security/formal-verification",
                   "security/THREAT-MODEL-ATLAS",
                   "security/CONTRIBUTING-THREAT-MODEL"
