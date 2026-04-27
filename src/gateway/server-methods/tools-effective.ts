@@ -11,9 +11,9 @@ import {
 } from "../protocol/index.js";
 import {
   deliveryContextFromSession,
+  getActivePluginChannelRegistryVersion,
   getActivePluginRegistryVersion,
   listAgentIds,
-  loadConfig,
   loadSessionEntry,
   resolveEffectiveToolInventory,
   resolveReplyToMode,
@@ -108,6 +108,7 @@ function buildToolsEffectiveCacheKey(params: {
     v: 1,
     config: configFingerprint(context.cfg),
     pluginRegistry: getActivePluginRegistryVersion(),
+    channelRegistry: getActivePluginChannelRegistryVersion(),
     sessionKey: params.sessionKey,
     agentId: context.agentId,
     senderIsOwner: context.senderIsOwner,
@@ -288,7 +289,7 @@ function resolveTrustedToolsEffectiveContext(params: {
 }
 
 export const toolsEffectiveHandlers: GatewayRequestHandlers = {
-  "tools.effective": async ({ params, respond, client }) => {
+  "tools.effective": async ({ params, respond, client, context }) => {
     if (!validateToolsEffectiveParams(params)) {
       respond(
         false,
@@ -300,7 +301,7 @@ export const toolsEffectiveHandlers: GatewayRequestHandlers = {
       );
       return;
     }
-    const cfg = loadConfig();
+    const cfg = context.getRuntimeConfig();
     const requestedAgentId = resolveRequestedAgentIdOrRespondError({
       rawAgentId: params.agentId,
       cfg,
