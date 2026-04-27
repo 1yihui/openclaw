@@ -111,7 +111,7 @@ function resolveTrustedToolsEffectiveContext(params: {
 }
 
 export const toolsEffectiveHandlers: GatewayRequestHandlers = {
-  "tools.effective": ({ params, respond, client }) => {
+  "tools.effective": async ({ params, respond, client }) => {
     if (!validateToolsEffectiveParams(params)) {
       respond(
         false,
@@ -143,25 +143,25 @@ export const toolsEffectiveHandlers: GatewayRequestHandlers = {
     if (!trustedContext) {
       return;
     }
-    respond(
-      true,
-      resolveEffectiveToolInventory({
-        cfg: trustedContext.cfg,
-        agentId: trustedContext.agentId,
-        sessionKey: params.sessionKey,
-        messageProvider: trustedContext.messageProvider,
-        modelProvider: trustedContext.modelProvider,
-        modelId: trustedContext.modelId,
-        senderIsOwner: trustedContext.senderIsOwner,
-        currentChannelId: trustedContext.currentChannelId,
-        currentThreadTs: trustedContext.currentThreadTs,
-        accountId: trustedContext.accountId,
-        groupId: trustedContext.groupId,
-        groupChannel: trustedContext.groupChannel,
-        groupSpace: trustedContext.groupSpace,
-        replyToMode: trustedContext.replyToMode,
-      }),
-      undefined,
-    );
+    // Yield to event loop before running expensive resolveEffectiveToolInventory()
+    // to prevent blocking other gateway requests during this ~46s operation.
+    await new Promise((resolve) => setImmediate(resolve));
+    const result = resolveEffectiveToolInventory({
+      cfg: trustedContext.cfg,
+      agentId: trustedContext.agentId,
+      sessionKey: params.sessionKey,
+      messageProvider: trustedContext.messageProvider,
+      modelProvider: trustedContext.modelProvider,
+      modelId: trustedContext.modelId,
+      senderIsOwner: trustedContext.senderIsOwner,
+      currentChannelId: trustedContext.currentChannelId,
+      currentThreadTs: trustedContext.currentThreadTs,
+      accountId: trustedContext.accountId,
+      groupId: trustedContext.groupId,
+      groupChannel: trustedContext.groupChannel,
+      groupSpace: trustedContext.groupSpace,
+      replyToMode: trustedContext.replyToMode,
+    });
+    respond(true, result, undefined);
   },
 };
