@@ -96,14 +96,16 @@ Imported themes are stored only in the current browser profile. They are not wri
 <AccordionGroup>
   <Accordion title="Chat and Talk">
     - Chat with the model via Gateway WS (`chat.history`, `chat.send`, `chat.abort`, `chat.inject`).
+    - Chat history refreshes request a bounded recent window with per-message text caps so large sessions do not force the browser to render a full transcript payload before the chat becomes usable.
     - Talk through browser realtime sessions. OpenAI uses direct WebRTC, Google Live uses a constrained one-use browser token over WebSocket, and backend-only realtime voice plugins use the Gateway relay transport. Client-owned provider sessions start with `talk.client.create`; Gateway relay sessions start with `talk.session.create`. The relay keeps provider credentials on the Gateway while the browser streams microphone PCM through `talk.session.appendAudio` and forwards `openclaw_agent_consult` provider tool calls through `talk.client.toolCall` for Gateway policy and the larger configured OpenClaw model.
     - Stream tool calls + live tool output cards in Chat (agent events).
 
   </Accordion>
   <Accordion title="Channels, instances, sessions, dreams">
     - Channels: built-in plus bundled/external plugin channels status, QR login, and per-channel config (`channels.status`, `web.login.*`, `config.patch`).
+    - Channel probe refreshes keep the previous snapshot visible while slow provider checks finish, and partial snapshots are labeled when a probe or audit exceeds its UI budget.
     - Instances: presence list + refresh (`system-presence`).
-    - Sessions: list + per-session model/thinking/fast/verbose/trace/reasoning overrides (`sessions.list`, `sessions.patch`).
+    - Sessions: list configured-agent sessions by default, fall back from stale unconfigured agent session keys, and apply per-session model/thinking/fast/verbose/trace/reasoning overrides (`sessions.list`, `sessions.patch`).
     - Dreams: dreaming status, enable/disable toggle, and Dream Diary reader (`doctor.memory.status`, `doctor.memory.dreamDiary`, `config.patch`).
 
   </Accordion>
@@ -127,7 +129,7 @@ Imported themes are stored only in the current browser profile. They are not wri
   </Accordion>
   <Accordion title="Debug, logs, update">
     - Debug: status/health/models snapshots + event log + manual RPC calls (`status`, `health`, `models.list`).
-    - The event log includes Control UI refresh/RPC timings plus browser responsiveness entries for long animation frames or long tasks when the browser exposes those PerformanceObserver entry types.
+    - The event log includes Control UI refresh/RPC timings, slow chat/config render timings, and browser responsiveness entries for long animation frames or long tasks when the browser exposes those PerformanceObserver entry types.
     - Logs: live tail of gateway file logs with filter/export (`logs.tail`).
     - Update: run a package/git update + restart (`update.run`) with a restart report, then poll `update.status` after reconnect to verify the running gateway version.
 
@@ -164,7 +166,7 @@ Imported themes are stored only in the current browser profile. They are not wri
     - The chat header model and thinking pickers patch the active session immediately through `sessions.patch`; they are persistent session overrides, not one-turn-only send options.
     - Typing `/new` in the Control UI creates and switches to the same fresh dashboard session as New Chat. Typing `/reset` keeps the Gateway's explicit in-place reset for the current session.
     - The chat model picker requests the Gateway's configured model view. If `agents.defaults.models` is present, that allowlist drives the picker. Otherwise the picker shows explicit `models.providers.*.models` entries plus providers with usable auth. The full catalog stays available through the debug `models.list` RPC with `view: "all"`.
-    - When fresh Gateway session usage reports show high context pressure, the chat composer area shows a context notice and, at recommended compaction levels, a compact button that runs the normal session compaction path. Stale token snapshots are hidden until the Gateway reports fresh usage again.
+    - When fresh Gateway session usage reports include current context tokens, the chat composer area shows a compact context usage indicator. It switches to warning styling at high context pressure and, at recommended compaction levels, shows a compact button that runs the normal session compaction path. Stale token snapshots are hidden until the Gateway reports fresh usage again.
 
   </Accordion>
   <Accordion title="Talk mode (browser realtime)">

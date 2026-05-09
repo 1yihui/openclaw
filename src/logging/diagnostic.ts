@@ -303,13 +303,31 @@ function sampleDiagnosticLiveness(now: number): DiagnosticLivenessSample | null 
   ) {
     reasons.push("event_loop_delay");
   }
-  if (eventLoopUtilizationRatio >= DEFAULT_LIVENESS_EVENT_LOOP_UTILIZATION_WARN) {
+  // Require actual event-loop delay evidence before attributing the warning to
+  // utilization or CPU saturation. perf_hooks.eventLoopUtilization() saturates at
+  // 1.0 whenever the loop is kept busy with frequent short async work even when it
+  // never blocks. cpuCoreRatio is aggregated across all cores and can exceed 1.0
+  // without indicating single-core saturation. Both require delay evidence to be
+  // meaningful degradation signals.
+  // Corresponds to: https://github.com/openclaw/openclaw/issues/79017
+  const hasDelayEvidence =
+    eventLoopDelayP99Ms >= DEFAULT_LIVENESS_EVENT_LOOP_DELAY_WARN_MS ||
+    eventLoopDelayMaxMs >= DEFAULT_LIVENESS_EVENT_LOOP_DELAY_WARN_MS;
+  if (
+    hasDelayEvidence &&
+    eventLoopUtilizationRatio >= DEFAULT_LIVENESS_EVENT_LOOP_UTILIZATION_WARN
+  ) {
     reasons.push("event_loop_utilization");
   }
-  if (cpuCoreRatio >= DEFAULT_LIVENESS_CPU_CORE_RATIO_WARN) {
+  if (hasDelayEvidence && cpuCoreRatio >= DEFAULT_LIVENESS_CPU_CORE_RATIO_WARN) {
     reasons.push("cpu");
   }
-  if (reasons.length === 0) {
+  const hasAnyMetric =
+    eventLoopDelayP99Ms >= DEFAULT_LIVENESS_EVENT_LOOP_DELAY_WARN_MS ||
+    eventLoopDelayMaxMs >= DEFAULT_LIVENESS_EVENT_LOOP_DELAY_WARN_MS ||
+    eventLoopUtilizationRatio >= DEFAULT_LIVENESS_EVENT_LOOP_UTILIZATION_WARN ||
+    cpuCoreRatio >= DEFAULT_LIVENESS_CPU_CORE_RATIO_WARN;
+  if (!hasAnyMetric) {
     return null;
   }
 

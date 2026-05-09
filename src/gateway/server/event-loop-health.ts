@@ -66,10 +66,24 @@ function resolveGatewayEventLoopHealthReasons(params: {
   ) {
     reasons.push("event_loop_delay");
   }
-  if (hasSustainedLoadWindow && params.utilization >= EVENT_LOOP_UTILIZATION_WARN) {
+  // Require actual event-loop delay evidence before attributing degradation to
+  // utilization or CPU saturation. perf_hooks.eventLoopUtilization() returns 1.0
+  // whenever the loop is kept busy with frequent short async work (websocket
+  // keepalives, libuv microtasks) even when it never blocks. Similarly,
+  // cpuCoreRatio is aggregated across all cores and can exceed 1.0 on
+  // multi-core systems without indicating actual saturation. Neither is
+  // sufficient grounds for a degraded flag on its own.
+  // See: https://github.com/openclaw/openclaw/issues/79017
+  const hasDelayEvidence =
+    params.delayP99Ms >= EVENT_LOOP_DELAY_WARN_MS || params.delayMaxMs >= EVENT_LOOP_DELAY_WARN_MS;
+  if (
+    hasSustainedLoadWindow &&
+    params.utilization >= EVENT_LOOP_UTILIZATION_WARN &&
+    hasDelayEvidence
+  ) {
     reasons.push("event_loop_utilization");
   }
-  if (hasSustainedLoadWindow && params.cpuCoreRatio >= CPU_CORE_RATIO_WARN) {
+  if (hasSustainedLoadWindow && params.cpuCoreRatio >= CPU_CORE_RATIO_WARN && hasDelayEvidence) {
     reasons.push("cpu");
   }
 
