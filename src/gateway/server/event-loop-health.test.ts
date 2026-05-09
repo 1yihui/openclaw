@@ -80,10 +80,16 @@ describe("createGatewayEventLoopHealthMonitor", () => {
     expect(harness.cpuUsage).toHaveBeenCalledTimes(1);
     expect(harness.eventLoopUtilization).toHaveBeenCalledTimes(1);
 
+    // With no delay evidence (delayMaxMs=0), ELU=1.0 and cpuCoreRatio=1.0 must NOT
+    // trigger degraded. perf_hooks.eventLoopUtilization() saturates at 1.0 whenever
+    // the loop is kept busy with frequent short async work, even when it never
+    // blocks. cpuCoreRatio is aggregated across all cores and can exceed 1.0 without
+    // indicating single-core saturation. Both require actual delay to be meaningful.
+    // See: https://github.com/openclaw/openclaw/issues/79017
     harness.setNow(1_000);
     expect(harness.monitor.snapshot()).toMatchObject({
-      degraded: true,
-      reasons: ["event_loop_utilization", "cpu"],
+      degraded: false,
+      reasons: [],
       intervalMs: 1_000,
       delayP99Ms: 0,
       delayMaxMs: 0,
@@ -103,6 +109,24 @@ describe("createGatewayEventLoopHealthMonitor", () => {
       intervalMs: 42,
       delayP99Ms: 0,
       delayMaxMs: 1_500,
+    });
+  });
+
+  it("reports utilization and cpu reasons only when delay evidence also present", () => {
+    const harness = createMonitorHarness();
+    harness.setDelay({ maxMs: 1_200 }); // delay above EVENT_LOOP_DELAY_WARN_MS (1000)
+    harness.setNow(1_000);
+
+    // With utilization=1, cpuCoreRatio=1 AND delay evidence present → degraded with
+    // all three reasons.
+    expect(harness.monitor.snapshot()).toMatchObject({
+      degraded: true,
+      reasons: ["event_loop_delay", "event_loop_utilization", "cpu"],
+      intervalMs: 1_000,
+      delayP99Ms: 0,
+      delayMaxMs: 1_200,
+      utilization: 1,
+      cpuCoreRatio: 1,
     });
   });
 
